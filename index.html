@@ -22,6 +22,20 @@
     });
   }
 </script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey: "AIzaSyCWNIKGXnym62OGY5Mfbjz40pG0MS8l3DY",
+    authDomain: "supershopper-6a1ad.firebaseapp.com",
+    projectId: "supershopper-6a1ad",
+    storageBucket: "supershopper-6a1ad.firebasestorage.app",
+    messagingSenderId: "397233407399",
+    appId: "1:397233407399:web:68b7dd78c7fb49a4e82282"
+  });
+  window.db = firebase.firestore();
+  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;600;700&display=swap">
@@ -411,37 +425,32 @@ class Component extends DCLogic {
     toast: ''
   };
 
-  constructor(props) {
-    super(props);
-    try {
-      const raw = localStorage.getItem('shopping-list-v1');
-      if (raw) {
-        const d = JSON.parse(raw);
-        if (d.stores && d.stores.length) this.stores = d.stores;
-        if (d.master) this.master = d.master;
-        this.state = {
-          ...this.state,
-          checked: d.checked || this.state.checked,
-          offList: d.offList || this.state.offList,
-          defaultIdx: typeof d.defaultIdx === 'number' ? d.defaultIdx : this.state.defaultIdx,
-          addSec: d.addSec || this.state.addSec,
-          storeIdx: typeof d.storeIdx === 'number' ? d.storeIdx : this.state.storeIdx
-        };
-      }
-    } catch (e) {}
-    if (this.state.storeIdx >= this.stores.length) this.state.storeIdx = 0;
-    if (this.state.defaultIdx >= this.stores.length) this.state.defaultIdx = 0;
-    if (!this.master[this.state.addSec]) this.state.addSec = Object.keys(this.master)[0] || 'pantry';
+  listDoc = db.collection('lists').doc('shared');
+
+  componentDidMount() {
+    this._unsub = this.listDoc.onSnapshot((doc) => {
+      if (!doc.exists) { this.persist(); return; }
+      const d = doc.data();
+      if (d.stores && d.stores.length) this.stores = d.stores;
+      if (d.master) this.master = d.master;
+      this._suppressPersist = true;
+      this.setState({
+        checked: d.checked || {},
+        offList: d.offList || {},
+        defaultIdx: typeof d.defaultIdx === 'number' ? d.defaultIdx : 0,
+        addSec: this.master[d.addSec] ? d.addSec : (Object.keys(this.master)[0] || 'pantry'),
+        storeIdx: typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0
+      }, () => { this._suppressPersist = false; });
+    });
   }
-  componentDidUpdate() { this.persist(); }
+  componentWillUnmount() { this._unsub && this._unsub(); }
+  componentDidUpdate() { if (!this._suppressPersist) this.persist(); }
   persist() {
-    try {
-      const s = this.state;
-      localStorage.setItem('shopping-list-v1', JSON.stringify({
-        stores: this.stores, master: this.master,
-        checked: s.checked, offList: s.offList, defaultIdx: s.defaultIdx, addSec: s.addSec, storeIdx: s.storeIdx
-      }));
-    } catch (e) {}
+    const s = this.state;
+    this.listDoc.set({
+      stores: this.stores, master: this.master,
+      checked: s.checked, offList: s.offList, defaultIdx: s.defaultIdx, addSec: s.addSec, storeIdx: s.storeIdx
+    }).catch(() => {});
   }
 
   toggle(id) { this.setState(s => ({ checked: { ...s.checked, [id]: !s.checked[id] } })); }

@@ -1,4 +1,4 @@
-const CACHE = 'shopping-list-v4';
+const CACHE = 'shopping-list-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,9 @@ const ASSETS = [
   './icons/maskable-512.png',
   'https://unpkg.com/react@18.3.1/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js',
-  'https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;600;700&display=swap'
+  'https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;600;700&display=swap',
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js'
 ];
 
 self.addEventListener('install', (e) => {
@@ -23,8 +25,11 @@ self.addEventListener('activate', (e) => {
 });
 
 // Cache-first, falling back to network and caching new GETs — full offline use.
+// Scoped to our own origin + known CDN assets so it never intercepts Firestore's
+// live sync traffic (which must reach the network directly, not a cache).
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  if (!e.request.url.startsWith(self.location.origin) && !ASSETS.includes(e.request.url)) return;
   e.respondWith(
     caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
       const copy = res.clone();
