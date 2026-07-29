@@ -4,6 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="./support.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey: "AIzaSyCWNIKGXnym62OGY5Mfbjz40pG0MS8l3DY",
+    authDomain: "supershopper-6a1ad.firebaseapp.com",
+    projectId: "supershopper-6a1ad",
+    storageBucket: "supershopper-6a1ad.firebasestorage.app",
+    messagingSenderId: "397233407399",
+    appId: "1:397233407399:web:68b7dd78c7fb49a4e82282"
+  });
+  window.db = firebase.firestore();
+  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+</script>
 </head>
 <body>
 <x-dc>
@@ -21,20 +35,6 @@
       navigator.serviceWorker.register('sw.js').catch(() => {});
     });
   }
-</script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script>
-  firebase.initializeApp({
-    apiKey: "AIzaSyCWNIKGXnym62OGY5Mfbjz40pG0MS8l3DY",
-    authDomain: "supershopper-6a1ad.firebaseapp.com",
-    projectId: "supershopper-6a1ad",
-    storageBucket: "supershopper-6a1ad.firebasestorage.app",
-    messagingSenderId: "397233407399",
-    appId: "1:397233407399:web:68b7dd78c7fb49a4e82282"
-  });
-  window.db = firebase.firestore();
-  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
