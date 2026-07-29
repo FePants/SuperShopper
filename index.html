@@ -455,8 +455,16 @@ class Component extends DCLogic {
   listDoc = db.collection('lists').doc('shared');
 
   componentDidMount() {
+    this._hydrated = false;
+    this._suppressPersist = true;
     this._unsub = this.listDoc.onSnapshot((doc) => {
-      if (!doc.exists) { this.persist(); return; }
+      const exists = typeof doc.exists === 'function' ? doc.exists() : doc.exists;
+      if (!exists) {
+        this._suppressPersist = false;
+        this._hydrated = true;
+        this.persist();
+        return;
+      }
       const d = doc.data();
       if (d.stores && d.stores.length) this.stores = d.stores;
       if (d.master) this.master = d.master;
@@ -467,11 +475,11 @@ class Component extends DCLogic {
         defaultIdx: typeof d.defaultIdx === 'number' ? d.defaultIdx : 0,
         addSec: this.master[d.addSec] ? d.addSec : (Object.keys(this.master)[0] || 'pantry'),
         storeIdx: typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0
-      }, () => { this._suppressPersist = false; });
+      }, () => { this._suppressPersist = false; this._hydrated = true; });
     });
   }
   componentWillUnmount() { this._unsub && this._unsub(); }
-  componentDidUpdate() { if (!this._suppressPersist) this.persist(); }
+  componentDidUpdate() { if (this._hydrated && !this._suppressPersist) this.persist(); }
   persist() {
     const s = this.state;
     this.listDoc.set({
