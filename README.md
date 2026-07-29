@@ -1,6 +1,6 @@
 # Shopping List
 
-A personal/shared shopping-list PWA. Set up each store's section order once, then shop from a list sorted to match how you walk that store. Works offline and installs to your home screen.
+A shared shopping-list PWA. Set up each store's section order once, then shop from a list sorted to match how you walk that store. Synced in real time between devices via Firestore, and installs to your home screen for full-screen, offline use.
 
 ## Files
 
@@ -32,8 +32,30 @@ Open the printed URL. In DevTools → Application you can inspect the manifest, 
 
 All paths are relative (`./`), so it works from the `/repo/` subpath Pages serves from. On your phone, open that URL and choose **Add to Home Screen** for the full-screen, offline app.
 
+## Data sync (Firestore)
+
+List/store/section data lives in a single Firestore document (`lists/shared`) instead of `localStorage`, so every device that opens the app sees the same list in real time. The Firebase project config is inlined in `index.html` (Firebase web API keys aren't secret — access is controlled by Firestore security rules, not by hiding the key).
+
+**Firestore setup** (one-time, in the Firebase console):
+1. **Build/Databases → Firestore Database → Create database.**
+2. **Firestore Database → Rules**, set:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /lists/{listId} {
+         allow read, write: if listId == 'shared';
+       }
+     }
+   }
+   ```
+   This scopes read/write to exactly the one document the app uses — not real authentication (anyone who finds the repo could still edit that document), just enough to keep the rest of the project locked down.
+3. **Project settings → General → Your apps → Add app → Web**, copy the `firebaseConfig` snippet into the `<script>` block near the top of `index.html`.
+
+To point the app at a different Firebase project, swap the `firebaseConfig` values in `index.html` and republish the rules above.
+
 ## Notes
 
-- First load must be online (it caches React/ReactDOM and fonts); after that it runs fully offline.
-- Bump `CACHE` in `sw.js` when you change assets to force clients to refresh.
-- Data (lists, stores, section orders) persists in `localStorage`, per browser/device.
+- First load must be online (it caches React/ReactDOM, fonts, and the Firebase SDK); after that it runs fully offline, backed by Firestore's own offline cache.
+- Bump `CACHE` in `sw.js` when you change assets to force clients to refresh. Because of how service worker updates activate, a device may need to relaunch the installed app **twice** to pick up a new version.
+- Categories (sections like "Produce") are shared across stores by ID — the Store Editor's **New** button creates one just for that store, **Existing** attaches an already-defined category (and its items) to another store's walk order.
