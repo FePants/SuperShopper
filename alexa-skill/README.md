@@ -1,10 +1,14 @@
 # Alexa voice control — setup guide
 
-Lets you say "Alexa, tell Shopping List to add milk" and have it show up in the app under a new
+Lets you say "Alexa, tell Pantry List to add milk" and have it show up in the app under a new
 always-visible **Quick Add** category, in real time, on every device. This is for personal use on
 your own Amazon developer account/devices — it's never submitted for certification or published
 to the public Skill Store, so none of Amazon's store-listing requirements (privacy policy, icons,
 review) apply.
+
+**Invocation name note:** avoid any word containing "shop"/"shopper"/"shopping" — testing showed
+those get intercepted by Amazon's own built-in shopping/product-search voice feature before ever
+reaching a custom skill, regardless of the exact phrase. `pantry list` avoids that collision.
 
 ## How it fits together
 
@@ -74,7 +78,7 @@ the ARN from step 3 → **Save Endpoints**.
 Developer Console → **Test** tab → enable testing in **Development** → type or speak:
 
 ```
-open shopping list
+open pantry list
 add milk
 ```
 
