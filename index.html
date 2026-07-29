@@ -103,8 +103,8 @@
                 <sc-if value="{{ sec.walkNo }}" hint-placeholder-val="{{ true }}">
                   <span style="width:26px;height:26px;flex:none;display:grid;place-items:center;background:#ffe1d0;border-radius:50%;color:#8c491a;font-size:13px;font-weight:700;">{{ sec.walkNo }}</span>
                 </sc-if>
-                <sc-if value="{{ sec.isMeal }}" hint-placeholder-val="{{ false }}">
-                  <span style="font-size:11px;font-weight:700;letter-spacing:.02em;color:#56633f;background:#e1eecc;padding:4px 11px;border-radius:999px;">Anytime</span>
+                <sc-if value="{{ sec.badge }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-size:11px;font-weight:700;letter-spacing:.02em;color:#56633f;background:#e1eecc;padding:4px 11px;border-radius:999px;">{{ sec.badge }}</span>
                 </sc-if>
                 <span style="font-family:'Caprasimo',serif;font-size:20px;color:#201e1d;">{{ sec.name }}</span>
                 <span style="flex:1;"></span>
@@ -280,8 +280,8 @@
         <sc-for list="{{ catalog }}" as="cat" hint-placeholder-count="5">
           <div>
             <div style="display:flex;align-items:center;gap:10px;margin:0 4px 8px;">
-              <sc-if value="{{ cat.isMeal }}" hint-placeholder-val="{{ false }}">
-                <span style="font-size:11px;font-weight:700;letter-spacing:.02em;color:#56633f;background:#e1eecc;padding:4px 11px;border-radius:999px;">Anytime</span>
+              <sc-if value="{{ cat.badge }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:11px;font-weight:700;letter-spacing:.02em;color:#56633f;background:#e1eecc;padding:4px 11px;border-radius:999px;">{{ cat.badge }}</span>
               </sc-if>
               <span style="font-family:'Caprasimo',serif;font-size:20px;color:#201e1d;">{{ cat.name }}</span>
               <span style="flex:1;"></span>
@@ -647,7 +647,7 @@ class Component extends DCLogic {
     this.setState({ addExistingOpen: false, newSecId: null });
   };
 
-  build(secId, walkNo, isMeal) {
+  build(secId, walkNo, badge) {
     const m = this.master[secId];
     let remaining = 0;
     const items = m.items.filter(n => !this.state.offList[secId + ':' + n]).map((name) => {
@@ -661,7 +661,7 @@ class Component extends DCLogic {
         dragShadow: dragging ? '0 12px 28px rgba(46,43,37,.32)' : 'none',
         dragT: dragging ? 'scale(1.02)' : 'none', dragOp: dragging ? '0.97' : '1', dragZ: dragging ? 6 : 0 };
     });
-    return { id: secId, name: m.name, walkNo, isMeal, items, remaining, empty: items.length === 0,
+    return { id: secId, name: m.name, walkNo, badge, items, remaining, empty: items.length === 0,
       countLabel: remaining === 0 ? 'all set' : remaining + ' left' };
   }
   itemCount(order) { return order.reduce((a, id) => a + this.master[id].items.length, 0); }
@@ -672,9 +672,13 @@ class Component extends DCLogic {
     if (this._ck === _key) return this._cv;
     const { view } = this.state;
     const store = this.stores[this.state.storeIdx];
-    const sections = store.order.map(sid => this.build(sid, null, false)).filter(s => !s.empty);
+    const sections = store.order.map(sid => this.build(sid, null, null)).filter(s => !s.empty);
     sections.forEach((s, i) => { s.walkNo = i + 1; });
-    const meal = this.build('meal', null, true);
+    if (this.master.inbox) {
+      const inbox = this.build('inbox', null, 'New');
+      if (!inbox.empty) sections.unshift(inbox);
+    }
+    const meal = this.build('meal', null, 'Anytime');
     if (!meal.empty) sections.push(meal);
     const totalRemaining = sections.reduce((a, s) => a + s.remaining, 0);
 
@@ -682,14 +686,16 @@ class Component extends DCLogic {
     const dOrder = this.stores[this.state.defaultIdx].order;
     const seen = new Set(), catIds = [];
     dOrder.forEach(id => { if (this.master[id] && !seen.has(id)) { seen.add(id); catIds.push(id); } });
-    Object.keys(this.master).forEach(id => { if (id !== 'meal' && !seen.has(id)) { seen.add(id); catIds.push(id); } });
+    Object.keys(this.master).forEach(id => { if (id !== 'meal' && id !== 'inbox' && !seen.has(id)) { seen.add(id); catIds.push(id); } });
+    if (this.master.inbox) catIds.push('inbox');
     catIds.push('meal');
     const catalog = catIds.map(sid => {
       const m = this.master[sid];
       const items = m.items.map(name => { const id = sid + ':' + name; const onList = !this.state.offList[id];
         return { id, name, onList, notOnList: !onList }; });
       const on = items.filter(x => x.onList).length;
-      return { id: sid, name: m.name, items, isMeal: sid === 'meal', onLabel: on + ' of ' + items.length };
+      const badge = sid === 'meal' ? 'Anytime' : (sid === 'inbox' ? 'New' : null);
+      return { id: sid, name: m.name, items, badge, onLabel: on + ' of ' + items.length };
     });
     const sectionOptions = catIds.map(id => ({ id, name: this.master[id].name, isMeal: id === 'meal', selected: id === this.state.addSec }));
     const addSecName = this.master[this.state.addSec] ? this.master[this.state.addSec].name : 'Pantry';
@@ -725,7 +731,7 @@ class Component extends DCLogic {
       };
     });
     const isDef = this.state.editIdx === this.state.defaultIdx;
-    const availableSections = Object.keys(this.master).filter(id => id !== 'meal' && !es.order.includes(id)).map(id => {
+    const availableSections = Object.keys(this.master).filter(id => id !== 'meal' && id !== 'inbox' && !es.order.includes(id)).map(id => {
       const n = this.master[id].items.length;
       return { id, name: this.master[id].name, itemLabel: n + (n === 1 ? ' item' : ' items') };
     });
