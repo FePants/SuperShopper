@@ -1,0 +1,28 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "shopping list",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        {
+          "name": "AddItemIntent",
+          "slots": [
+            { "name": "Item", "type": "AMAZON.SearchQuery" }
+          ],
+          "samples": [
+            "add {Item}",
+            "add {Item} to my list",
+            "add {Item} to the list",
+            "add {Item} to the shopping list",
+            "put {Item} on my list",
+            "put {Item} on the list"
+          ]
+        }
+      ]
+    }
+  }
+}

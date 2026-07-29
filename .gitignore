@@ -1,3 +1,7 @@
 # Design-tool scaffolding (not used by the deployed app)
 _ds/
 .thumbnail
+
+# Alexa Lambda build output (regenerate with npm install + tar, see alexa-skill/README.md)
+alexa-skill/lambda/node_modules/
+alexa-skill/function.zip

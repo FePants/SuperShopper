@@ -1,0 +1,11 @@
+{
+  "name": "shopping-list-alexa-skill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Alexa skill backend for the Shopping List app -- adds voice items to the shared Firestore document.",
+  "main": "index.js",
+  "dependencies": {
+    "ask-sdk-core": "^2.14.0",
+    "firebase-admin": "^12.6.0"
+  }
+}
