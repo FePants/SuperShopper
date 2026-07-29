@@ -37,21 +37,12 @@
   @media (max-width:480px),(display-mode:standalone){
     #shell{padding:0!important;background:#f5ead8!important}
     #phone{width:100%!important;max-width:none!important;height:100dvh!important;border-radius:0!important;box-shadow:none!important;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
-    #statusbar,#homebar{display:none!important}
+    #homebar{display:none!important}
   }
 </style>
 </helmet>
 <div id="shell" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:max(40px,env(safe-area-inset-top)) max(40px,env(safe-area-inset-right)) max(40px,env(safe-area-inset-bottom)) max(40px,env(safe-area-inset-left));background:radial-gradient(130% 120% at 30% 0%,#efe2cd 0%,#e2d2b6 75%);font-family:'Figtree',system-ui,sans-serif;">
   <div id="phone" style="width:393px;height:852px;border-radius:46px;overflow:hidden;position:relative;background:#f5ead8;box-shadow:0 40px 90px rgba(46,43,37,.35),0 0 0 1px rgba(255,255,255,.5);color:#201e1d;display:flex;flex-direction:column;">
-
-    <div id="statusbar" style="height:52px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 7px;font-size:15px;font-weight:700;">
-      <span>9:41</span>
-      <span style="display:flex;gap:7px;align-items:center;color:#201e1d;">
-        <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".4"/></svg>
-        <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 4a11 11 0 0 1 14 0"/><path d="M3.5 6.7a7 7 0 0 1 9 0"/><path d="M6 9.3a3 3 0 0 1 4 0"/></svg>
-        <span style="width:24px;height:12px;border:1px solid rgba(32,30,29,.6);border-radius:3px;position:relative;display:inline-block;"><span style="position:absolute;inset:1.5px;width:70%;background:#201e1d;border-radius:1px;"></span></span>
-      </span>
-    </div>
 
     <!-- ══ SHOP (LIST) ══ -->
     <sc-if value="{{ isList }}" hint-placeholder-val="{{ true }}">
