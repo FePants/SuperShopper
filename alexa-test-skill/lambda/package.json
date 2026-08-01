@@ -1,0 +1,7 @@
+{
+  "name": "purple-lantern-alexa-test-skill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal no-dependency Alexa custom skill for routing tests.",
+  "main": "index.js"
+}

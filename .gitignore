@@ -5,3 +5,4 @@ _ds/
 # Alexa Lambda build output (regenerate with npm install + tar, see alexa-skill/README.md)
 alexa-skill/lambda/node_modules/
 alexa-skill/function.zip
+alexa-test-skill/function.zip

@@ -1,15 +1,18 @@
 # Alexa voice control — setup guide
 
-Lets you say "Alexa, tell Grocery Genie to add milk" and have it show up in the app under a new
+Lets you say "Alexa, ask Blue Spatula to stash milk" and have it show up in the app under a new
 always-visible **Quick Add** category, in real time, on every device. This is for personal use on
 your own Amazon developer account/devices — it's never submitted for certification or published
 to the public Skill Store, so none of Amazon's store-listing requirements (privacy policy, icons,
 review) apply.
 
-**Invocation name note:** avoid "shop"/"shopper"/"shopping" (routes to Amazon's built-in
-shopping/product-search feature) and avoid ending in "list" (routes to Alexa's built-in named-list
-feature — "open my pantry list" is interpreted as "open my custom list called pantry," not as
-launching a skill). `grocery genie` has neither, so it reaches the custom skill.
+**Invocation name note:** avoid "shop"/"shopper"/"shopping", "grocery", and names ending in
+"list". Those words can route to Amazon's built-in shopping/product-search or named-list features
+before the custom skill sees the utterance. If the Test tab doesn't show Skill I/O JSON, Alexa
+didn't invoke the skill at all; change the invocation name, save the model, and build it again.
+Avoid using "add milk" or "remember milk" as the test phrase too; Alexa can interpret those as
+native list commands even when the invocation name is unusual. `blue spatula` plus `stash milk`
+is the current low-conflict test phrase.
 
 ## How it fits together
 
@@ -20,9 +23,9 @@ Echo device → Alexa skill (your Developer Console account)
             → same document the web app already reads/writes
 ```
 
-The Lambda writes with a single atomic Firestore `update()` call using `FieldValue.arrayUnion`
-on the dotted path `master.inbox.items` — this creates the `inbox` category the first time it's
-used, and can't race or clobber the app's own writes, since it only ever touches that one field.
+The Lambda merges a single atomic Firestore write using `FieldValue.arrayUnion` at
+`master.inbox.items`. This creates the `lists/shared` document or `inbox` category if needed,
+and avoids clobbering the app's own writes because it only touches the Quick Add fields.
 
 ## Files here
 
@@ -57,7 +60,7 @@ it to the repo; it only ever goes into the Lambda environment variable in step 3
 ### 3. AWS Lambda function
 
 1. AWS Console → **Lambda → Create function**.
-2. **Author from scratch**, runtime **Node.js 20.x** (or latest available), architecture x86_64.
+2. **Author from scratch**, runtime **Node.js 20.x** or newer, architecture x86_64.
 3. After creation, **Code → Upload from → .zip file**, select `alexa-skill/function.zip` from
    this repo on your machine.
 4. **Configuration → Environment variables → Add**:
@@ -79,8 +82,7 @@ the ARN from step 3 → **Save Endpoints**.
 Developer Console → **Test** tab → enable testing in **Development** → type or speak:
 
 ```
-open grocery genie
-add milk
+ask blue spatula to stash milk
 ```
 
 Then check the Firebase Console's Firestore **Data** tab: `lists/shared` → `master.inbox.items`

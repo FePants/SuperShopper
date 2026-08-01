@@ -1,7 +1,7 @@
 {
   "interactionModel": {
     "languageModel": {
-      "invocationName": "blue spatula",
+      "invocationName": "purple lantern",
       "intents": [
         { "name": "AMAZON.CancelIntent", "samples": [] },
         { "name": "AMAZON.HelpIntent", "samples": [] },
@@ -9,16 +9,12 @@
         { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
         { "name": "AMAZON.FallbackIntent", "samples": [] },
         {
-          "name": "RememberItemIntent",
-          "slots": [
-            { "name": "Item", "type": "AMAZON.SearchQuery" }
-          ],
+          "name": "HelloIntent",
           "samples": [
-            "stash {Item}",
-            "store {Item}",
-            "track {Item}",
-            "capture {Item}",
-            "record {Item}"
+            "hello",
+            "say hello",
+            "test",
+            "run test"
           ]
         }
       ]
