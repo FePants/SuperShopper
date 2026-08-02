@@ -68,6 +68,9 @@
             <span style="font-family:'Caprasimo',serif;font-size:19px;flex:1;text-align:left;">{{ storeName }}</span>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#c67139" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
           </button>
+          <button onClick="{{ refreshData }}" aria-label="Refresh data" style="width:46px;height:46px;flex:none;display:grid;place-items:center;background:#ebddc5;border:1px solid rgba(32,30,29,.08);border-radius:999px;color:{{ refreshColor }};cursor:pointer;" style-hover="color:#201e1d">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 15.8"/><path d="M3 21v-5.2h5.2"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8.2"/><path d="M21 3v5.2h-5.2"/></svg>
+          </button>
           <button onClick="{{ goStores }}" style="width:46px;height:46px;flex:none;display:grid;place-items:center;background:#ebddc5;border:1px solid rgba(32,30,29,.08);border-radius:999px;color:#82796a;cursor:pointer;" style-hover="color:#201e1d">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>
           </button>
@@ -474,6 +477,7 @@ class Component extends DCLogic {
     confirmDel: null,
     newSecId: null,
     addExistingOpen: false,
+    refreshing: false,
     toast: ''
   };
 
@@ -522,37 +526,84 @@ class Component extends DCLogic {
   componentDidMount() {
     this._hydrated = false;
     this._suppressPersist = true;
-    this._unsub = this.listDoc.onSnapshot((doc) => {
-      const exists = typeof doc.exists === 'function' ? doc.exists() : doc.exists;
-      if (!exists) {
-        this._suppressPersist = false;
-        this._hydrated = true;
-        this.persist();
-        return;
-      }
-      const d = doc.data();
-      if (d.stores && d.stores.length) this.stores = d.stores;
-      if (d.master) this.master = d.master;
-      const storeIdx = typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0;
-      const addSec = this.isAddableSection(d.addSec, storeIdx) ? d.addSec : this.firstAddableSection(storeIdx);
-      this._suppressPersist = true;
-      this.setState({
-        checked: d.checked || {},
-        offList: d.offList || {},
-        defaultIdx: typeof d.defaultIdx === 'number' ? d.defaultIdx : 0,
-        addSec,
-        storeIdx
-      }, () => { this._suppressPersist = false; this._hydrated = true; });
-    });
+    this._unsub = this.listDoc.onSnapshot((doc) => this.applyRemoteDoc(doc));
   }
   componentWillUnmount() { this._unsub && this._unsub(); }
-  componentDidUpdate() { if (this._hydrated && !this._suppressPersist) this.persist(); }
-  persist() {
-    const s = this.state;
-    this.listDoc.set({
+  componentDidUpdate() {
+    if (!this._hydrated || this._suppressPersist) return;
+    if (this.dataKey() !== this._lastPersistKey) this.persist();
+  }
+  dataPayload(state = this.state) {
+    return {
       stores: this.stores, master: this.master,
-      checked: s.checked, offList: s.offList, defaultIdx: s.defaultIdx, addSec: s.addSec, storeIdx: s.storeIdx
-    }).catch(() => {});
+      checked: state.checked, offList: state.offList, defaultIdx: state.defaultIdx, addSec: state.addSec, storeIdx: state.storeIdx
+    };
+  }
+  dataKey(state = this.state) { return JSON.stringify(this.dataPayload(state)); }
+  persist() {
+    const payload = this.dataPayload();
+    this._lastPersistKey = JSON.stringify(payload);
+    this.listDoc.set(payload).catch(() => {});
+  }
+  setUiState(update, cb) {
+    const wasSuppressed = this._suppressPersist;
+    this._suppressPersist = true;
+    this.setState(update, () => {
+      this._suppressPersist = wasSuppressed;
+      if (cb) cb();
+    });
+  }
+  flashToast(message, ms = 1900) {
+    clearTimeout(this._t);
+    this.setUiState({ toast: message }, () => {
+      this._t = setTimeout(() => this.setUiState({ toast: '' }), ms);
+    });
+  }
+  applyRemoteDoc(doc, extraState = {}, afterApply) {
+    const exists = typeof doc.exists === 'function' ? doc.exists() : doc.exists;
+    if (!exists) {
+      this._suppressPersist = false;
+      this._hydrated = true;
+      this.persist();
+      if (Object.keys(extraState).length) this.setUiState(extraState, afterApply);
+      else if (afterApply) afterApply();
+      return;
+    }
+    const d = doc.data();
+    if (d.stores && d.stores.length) this.stores = d.stores;
+    if (d.master) this.master = d.master;
+    const storeIdx = typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0;
+    const defaultIdx = typeof d.defaultIdx === 'number' && d.defaultIdx < this.stores.length ? d.defaultIdx : 0;
+    const addSec = this.isAddableSection(d.addSec, storeIdx) ? d.addSec : this.firstAddableSection(storeIdx);
+    this._suppressPersist = true;
+    this.setState({
+      checked: d.checked || {},
+      offList: d.offList || {},
+      defaultIdx,
+      addSec,
+      storeIdx,
+      ...extraState
+    }, () => {
+      this._lastPersistKey = this.dataKey();
+      this._suppressPersist = false;
+      this._hydrated = true;
+      if (afterApply) afterApply();
+    });
+  }
+  refreshData = () => {
+    if (this.state.refreshing) return;
+    this.setUiState({ refreshing: true, toast: 'Refreshing...' });
+    this.listDoc.get({ source: 'server' }).then((doc) => {
+      this.applyRemoteDoc(doc, { refreshing: false, editItem: null, itemMenu: null, toast: 'Synced from cloud' }, () => {
+        clearTimeout(this._t);
+        this._t = setTimeout(() => this.setUiState({ toast: '' }), 1900);
+      });
+    }).catch(() => {
+      this.setUiState({ refreshing: false, toast: 'Could not reach cloud' }, () => {
+        clearTimeout(this._t);
+        this._t = setTimeout(() => this.setUiState({ toast: '' }), 2400);
+      });
+    });
   }
 
   focusEditItem(id) {
@@ -702,11 +753,11 @@ class Component extends DCLogic {
   };
   nextStore = () => {
     const next = (this.state.storeIdx + 1) % this.stores.length;
-    const nextState = { storeIdx: next, toast: this.stores[next].name };
+    const nextState = { storeIdx: next, toast: 'Reordered for ' + this.stores[next].name };
     if (!this.isAddableSection(this.state.addSec, next)) nextState.addSec = this.firstAddableSection(next);
     this.setState(nextState);
     clearTimeout(this._t);
-    this._t = setTimeout(() => this.setState({ toast: '' }), 1900);
+    this._t = setTimeout(() => this.setUiState({ toast: '' }), 1900);
   };
   addItem(secId, name) {
     if (!name || !name.trim() || !this.master[secId] || !this.isAddableSection(secId)) return;
@@ -864,7 +915,7 @@ class Component extends DCLogic {
 
   renderVals() {
     const _s = this.state;
-    const _key = JSON.stringify([_s.view, _s.storeIdx, _s.editIdx, _s.defaultIdx, _s.confirmDel, _s.newSecId, _s.addExistingOpen, _s.toast, _s.itemMenu, _s.addSec, _s.pickerOpen, _s.dragId, _s.reorder, _s.shopDragId, _s.editItem, _s.checked, _s.offList, this.stores.map(x => [x.id, x.name, x.order]), Object.entries(this.master).map(([k, m]) => [k, m.name, m.items])]);
+    const _key = JSON.stringify([_s.view, _s.storeIdx, _s.editIdx, _s.defaultIdx, _s.confirmDel, _s.newSecId, _s.addExistingOpen, _s.toast, _s.refreshing, _s.itemMenu, _s.addSec, _s.pickerOpen, _s.dragId, _s.reorder, _s.shopDragId, _s.editItem, _s.checked, _s.offList, this.stores.map(x => [x.id, x.name, x.order]), Object.entries(this.master).map(([k, m]) => [k, m.name, m.items])]);
     if (this._ck === _key) return this._cv;
     const { view } = this.state;
     const store = this.stores[this.state.storeIdx];
@@ -936,7 +987,7 @@ class Component extends DCLogic {
       // shop
       sections, storeName: store.name,
       storeSub: this.state.reorder ? 'Drag items within or between sections' : ('Walk order · ' + totalRemaining + ' to go'),
-      storeKey: store.id, nextStore: this.nextStore, onRow: this.onRow,
+      storeKey: store.id, nextStore: this.nextStore, refreshData: this.refreshData, refreshColor: this.state.refreshing ? '#c67139' : '#82796a', onRow: this.onRow,
       hasItems: sections.length > 0, hasChecked: checkedCount > 0, clearChecked: this.clearChecked,
       reorder: this.state.reorder, notReorder: !this.state.reorder,
       toggleReorder: this.toggleReorder, shopDragStart: this.shopDragStart,
@@ -947,7 +998,7 @@ class Component extends DCLogic {
       reorderBtnBorder: this.state.reorder ? '#c67139' : 'rgba(32,30,29,.16)',
       reorderBtnColor: this.state.reorder ? '#f5ead8' : '#82796a',
       addKey: this.addKey, addClick: this.addClick,
-      showToast: !!this.state.toast, toastText: 'Reordered for ' + this.state.toast,
+      showToast: !!this.state.toast, toastText: this.state.toast,
       // views
       isList: view === 'list', isStores: view === 'stores', isEdit: view === 'edit', isSaved: view === 'saved',
       isEmptyList: sections.length === 0,
