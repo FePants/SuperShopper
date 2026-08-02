@@ -73,7 +73,13 @@
           </button>
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding-left:4px;">
-          <span style="flex:1;font-size:13px;color:#82796a;">{{ storeSub }}</span>
+          <span style="flex:1;min-width:0;font-size:13px;color:#82796a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ storeSub }}</span>
+          <sc-if value="{{ hasChecked }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ clearChecked }}" style="display:flex;align-items:center;gap:6px;min-height:34px;padding:5px 12px 5px 10px;background:#f7ddd5;border:1px solid rgba(178,58,46,.22);border-radius:999px;color:#b23a2e;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7"/><path d="M10 11v6M14 11v6"/></svg>
+              Clear checked
+            </button>
+          </sc-if>
           <sc-if value="{{ hasItems }}" hint-placeholder-val="{{ true }}">
             <button onClick="{{ toggleReorder }}" style="display:flex;align-items:center;gap:6px;min-height:34px;padding:5px 13px 5px 11px;background:{{ reorderBtnBg }};border:1px solid {{ reorderBtnBorder }};border-radius:999px;color:{{ reorderBtnColor }};cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><path d="m18 8-4-4-4 4M14 4v16M6 16l4 4 4-4"/></svg>
@@ -98,7 +104,7 @@
             </div>
           </sc-if>
           <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="5">
-            <div>
+            <div data-shopsec="{{ sec.id }}">
               <div style="display:flex;align-items:center;gap:10px;margin:0 4px 8px;">
                 <sc-if value="{{ sec.walkNo }}" hint-placeholder-val="{{ true }}">
                   <span style="width:26px;height:26px;flex:none;display:grid;place-items:center;background:#ffe1d0;border-radius:50%;color:#8c491a;font-size:13px;font-weight:700;">{{ sec.walkNo }}</span>
@@ -114,7 +120,7 @@
                 <sc-for list="{{ sec.items }}" as="item" hint-placeholder-count="3">
                   <div onClick="{{ onRow }}" data-id="{{ item.id }}" data-sec="{{ sec.id }}" data-shoprow="1" style="display:flex;align-items:center;gap:14px;min-height:48px;padding:4px 12px;border-radius:999px;cursor:{{ item.cursor }};background:{{ item.dragBg }};position:relative;z-index:{{ item.dragZ }};box-shadow:{{ item.dragShadow }};transform:{{ item.dragT }};opacity:{{ item.dragOp }};" style-hover="background:rgba(32,30,29,.045)">
                     <sc-if value="{{ reorder }}" hint-placeholder-val="{{ false }}">
-                      <button onPointerDown="{{ shopDragStart }}" data-id="{{ item.id }}" aria-label="Drag to reorder" style="width:28px;height:42px;flex:none;display:grid;place-items:center;background:transparent;border:0;color:#b0a693;cursor:grab;touch-action:none;margin:0 -2px 0 -6px;" style-hover="color:#82796a">
+                      <button onPointerDown="{{ shopDragStart }}" data-id="{{ item.id }}" aria-label="Drag item" style="width:28px;height:42px;flex:none;display:grid;place-items:center;background:transparent;border:0;color:#b0a693;cursor:grab;touch-action:none;margin:0 -2px 0 -6px;" style-hover="color:#82796a">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
                       </button>
                     </sc-if>
@@ -127,9 +133,17 @@
                         </sc-if>
                       </span>
                     </sc-if>
-                    <span style="font-size:16.5px;color:#201e1d;text-decoration-line:{{ item.deco }};text-decoration-color:#a19786;opacity:{{ item.op }};transition:opacity .2s;">{{ item.name }}</span>
+                    <span style="flex:1;min-width:0;font-size:16.5px;color:#201e1d;text-decoration-line:{{ item.deco }};text-decoration-color:#a19786;opacity:{{ item.op }};transition:opacity .2s;">{{ item.name }}</span>
+                    <sc-if value="{{ notReorder }}" hint-placeholder-val="{{ true }}">
+                      <button onClick="{{ openItemMenu }}" data-id="{{ item.id }}" aria-label="Item options" style="width:40px;height:40px;flex:none;display:grid;place-items:center;background:transparent;border:0;border-radius:12px;color:#a19786;cursor:pointer;margin-right:-8px;" style-hover="background:rgba(32,30,29,.06);color:#201e1d">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+                      </button>
+                    </sc-if>
                   </div>
                 </sc-for>
+                <sc-if value="{{ sec.showDropZone }}" hint-placeholder-val="{{ false }}">
+                  <div data-shopdrop="1" data-sec="{{ sec.id }}" style="min-height:42px;border:1.5px dashed rgba(198,113,57,.35);border-radius:18px;background:rgba(235,221,197,.5);"></div>
+                </sc-if>
               </div>
             </div>
           </sc-for>
@@ -454,6 +468,46 @@ class Component extends DCLogic {
 
   listDoc = db.collection('lists').doc('shared');
 
+  addableSectionIds(storeIdx = this.state.storeIdx) {
+    const store = this.stores[storeIdx] || this.stores[0] || { order: [] };
+    const ids = [];
+    (store.order || []).forEach(id => {
+      if (this.master[id] && !ids.includes(id)) ids.push(id);
+    });
+    if (this.master.meal && !ids.includes('meal')) ids.push('meal');
+    return ids;
+  }
+  isAddableSection(secId, storeIdx = this.state.storeIdx) {
+    return this.addableSectionIds(storeIdx).includes(secId);
+  }
+  firstAddableSection(storeIdx = this.state.storeIdx) {
+    return this.addableSectionIds(storeIdx)[0] || 'pantry';
+  }
+  currentAddSection(storeIdx = this.state.storeIdx) {
+    return this.isAddableSection(this.state.addSec, storeIdx) ? this.state.addSec : this.firstAddableSection(storeIdx);
+  }
+  splitItemId(id) {
+    const ci = id ? id.indexOf(':') : -1;
+    return ci > 0 ? { sec: id.slice(0, ci), name: id.slice(ci + 1) } : null;
+  }
+  listSectionIds(storeIdx = this.state.storeIdx) {
+    const ids = this.addableSectionIds(storeIdx);
+    if (this.master.inbox && !ids.includes('inbox')) ids.unshift('inbox');
+    return ids;
+  }
+  checkedVisibleItemIds(storeIdx = this.state.storeIdx, state = this.state) {
+    const ids = [];
+    this.listSectionIds(storeIdx).forEach(secId => {
+      const m = this.master[secId];
+      if (!m || !m.items) return;
+      m.items.forEach(name => {
+        const id = secId + ':' + name;
+        if (state.checked[id] && !state.offList[id]) ids.push(id);
+      });
+    });
+    return ids;
+  }
+
   componentDidMount() {
     this._hydrated = false;
     this._suppressPersist = true;
@@ -468,13 +522,15 @@ class Component extends DCLogic {
       const d = doc.data();
       if (d.stores && d.stores.length) this.stores = d.stores;
       if (d.master) this.master = d.master;
+      const storeIdx = typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0;
+      const addSec = this.isAddableSection(d.addSec, storeIdx) ? d.addSec : this.firstAddableSection(storeIdx);
       this._suppressPersist = true;
       this.setState({
         checked: d.checked || {},
         offList: d.offList || {},
         defaultIdx: typeof d.defaultIdx === 'number' ? d.defaultIdx : 0,
-        addSec: this.master[d.addSec] ? d.addSec : (Object.keys(this.master)[0] || 'pantry'),
-        storeIdx: typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0
+        addSec,
+        storeIdx
       }, () => { this._suppressPersist = false; this._hydrated = true; });
     });
   }
@@ -490,43 +546,82 @@ class Component extends DCLogic {
 
   toggle(id) { this.setState(s => ({ checked: { ...s.checked, [id]: !s.checked[id] } })); }
   onRow = (e) => { if (this.state.reorder) return; const id = e.currentTarget.dataset.id; if (id) this.toggle(id); };
+  clearChecked = () => {
+    this.setState(s => {
+      const ids = this.checkedVisibleItemIds(s.storeIdx, s);
+      if (!ids.length) return null;
+      const off = { ...s.offList }, ck = { ...s.checked };
+      ids.forEach(id => { off[id] = true; delete ck[id]; });
+      return { offList: off, checked: ck };
+    });
+  };
   toggleReorder = () => this.setState(s => ({ reorder: !s.reorder }));
   shopDragStart = (e) => {
     e.preventDefault();
-    this.setState({ shopDragId: e.currentTarget.dataset.id });
+    this._shopDragCurrentId = e.currentTarget.dataset.id;
+    this.setState({ shopDragId: this._shopDragCurrentId });
     this._smove = (ev) => this.shopDragMove(ev);
     this._sup = () => this.shopDragEnd();
     window.addEventListener('pointermove', this._smove);
     window.addEventListener('pointerup', this._sup);
   };
   shopDragMove = (ev) => {
-    const id = this.state.shopDragId; if (!id) return;
-    const ci = id.indexOf(':'), sec = id.slice(0, ci), name = id.slice(ci + 1);
-    const rows = Array.from(document.querySelectorAll('[data-shoprow][data-sec="' + sec + '"]'));
-    let targetId = null;
-    for (const r of rows) { const b = r.getBoundingClientRect(); if (ev.clientY >= b.top && ev.clientY <= b.bottom) { targetId = r.dataset.id; break; } }
-    if (!targetId || targetId === id) return;
-    const arr = this.master[sec].items;
-    const toName = targetId.slice(targetId.indexOf(':') + 1);
-    const from = arr.indexOf(name), to = arr.indexOf(toName);
-    if (from < 0 || to < 0) return;
-    arr.splice(to, 0, arr.splice(from, 1)[0]);
-    this.forceUpdate();
+    const id = this._shopDragCurrentId || this.state.shopDragId; if (!id) return;
+    const fromItem = this.splitItemId(id); if (!fromItem) return;
+    const targets = Array.from(document.querySelectorAll('[data-shoprow], [data-shopdrop]'));
+    let target = null;
+    for (const r of targets) { const b = r.getBoundingClientRect(); if (ev.clientY >= b.top && ev.clientY <= b.bottom) { target = r; break; } }
+    if (!target) return;
+    const targetSec = target.dataset.sec;
+    if (!targetSec || !this.master[targetSec] || !this.isAddableSection(targetSec)) return;
+    const targetId = target.dataset.id || '';
+    if (targetId === id) return;
+    const fromArr = this.master[fromItem.sec] && this.master[fromItem.sec].items;
+    const toArr = this.master[targetSec].items;
+    if (!fromArr || !toArr) return;
+    const from = fromArr.indexOf(fromItem.name);
+    if (from < 0) return;
+    if (targetSec === fromItem.sec) {
+      if (!targetId) return;
+      const toItem = this.splitItemId(targetId);
+      const to = toItem ? fromArr.indexOf(toItem.name) : -1;
+      if (to < 0) return;
+      fromArr.splice(to, 0, fromArr.splice(from, 1)[0]);
+      this.forceUpdate();
+      return;
+    }
+    fromArr.splice(from, 1);
+    const toItem = this.splitItemId(targetId);
+    const to = toItem ? toArr.indexOf(toItem.name) : -1;
+    toArr.splice(to >= 0 ? to : 0, 0, fromItem.name);
+    const oldId = fromItem.sec + ':' + fromItem.name;
+    const newId = targetSec + ':' + fromItem.name;
+    this._shopDragCurrentId = newId;
+    this.setState(s => {
+      const off = { ...s.offList }, ck = { ...s.checked };
+      delete off[oldId];
+      delete off[newId];
+      if (ck[oldId]) { delete ck[oldId]; ck[newId] = true; } else { delete ck[newId]; }
+      return { offList: off, checked: ck, shopDragId: newId };
+    });
   };
   shopDragEnd = () => {
     window.removeEventListener('pointermove', this._smove);
     window.removeEventListener('pointerup', this._sup);
+    this._shopDragCurrentId = null;
     this.setState({ shopDragId: null });
     this.persist();
   };
   nextStore = () => {
     const next = (this.state.storeIdx + 1) % this.stores.length;
-    this.setState({ storeIdx: next, toast: this.stores[next].name });
+    const nextState = { storeIdx: next, toast: this.stores[next].name };
+    if (!this.isAddableSection(this.state.addSec, next)) nextState.addSec = this.firstAddableSection(next);
+    this.setState(nextState);
     clearTimeout(this._t);
     this._t = setTimeout(() => this.setState({ toast: '' }), 1900);
   };
   addItem(secId, name) {
-    if (!name || !name.trim() || !this.master[secId]) return;
+    if (!name || !name.trim() || !this.master[secId] || !this.isAddableSection(secId)) return;
     const nm = name.trim();
     this.master[secId].items.unshift(nm);
     const id = secId + ':' + nm;
@@ -535,20 +630,26 @@ class Component extends DCLogic {
   goSaved = () => this.setState({ view: 'saved' });
   toggleList = (e) => {
     const id = e.currentTarget.dataset.id;
+    const item = this.splitItemId(id);
+    if (!item || !this.isAddableSection(item.sec)) return;
     this.setState(s => {
       const off = { ...s.offList }, ck = { ...s.checked };
       if (off[id]) { delete off[id]; } else { off[id] = true; delete ck[id]; }
       return { offList: off, checked: ck };
     });
   };
-  addKey = (e) => { if (e.key === 'Enter') { this.addItem(this.state.addSec, e.target.value); e.target.value = ''; } };
+  addKey = (e) => { if (e.key === 'Enter') { this.addItem(this.currentAddSection(), e.target.value); e.target.value = ''; } };
   addClick = (e) => {
     const inp = e.currentTarget.parentNode.querySelector('input');
-    if (inp) { this.addItem(this.state.addSec, inp.value); inp.value = ''; inp.focus(); }
+    if (inp) { this.addItem(this.currentAddSection(), inp.value); inp.value = ''; inp.focus(); }
   };
   openPicker = () => this.setState({ pickerOpen: true });
   closePicker = () => this.setState({ pickerOpen: false });
-  pickSec = (e) => this.setState({ addSec: e.currentTarget.dataset.id, pickerOpen: false });
+  pickSec = (e) => {
+    const id = e.currentTarget.dataset.id;
+    if (!this.isAddableSection(id)) return;
+    this.setState({ addSec: id, pickerOpen: false });
+  };
   stop = (e) => e.stopPropagation();
   dragStart = (e) => {
     e.preventDefault();
@@ -580,7 +681,8 @@ class Component extends DCLogic {
   moveItem = (e) => {
     const target = e.currentTarget.dataset.id;
     const id = this.state.itemMenu; if (!id) return;
-    const ci = id.indexOf(':'), sec = id.slice(0, ci), name = id.slice(ci + 1);
+    const item = this.splitItemId(id); if (!item || !this.isAddableSection(target)) return;
+    const { sec, name } = item;
     if (target !== sec && this.master[target]) {
       this.master[sec].items = this.master[sec].items.filter(n => n !== name);
       this.master[target].items.unshift(name);
@@ -589,15 +691,16 @@ class Component extends DCLogic {
     this.setState(s => {
       const off = { ...s.offList }, ck = { ...s.checked };
       if (target !== sec) {
-        if (off[oldId]) { delete off[oldId]; off[newId] = true; }
-        if (ck[oldId]) { delete ck[oldId]; ck[newId] = true; }
+        if (off[oldId]) { delete off[oldId]; off[newId] = true; } else { delete off[newId]; }
+        if (ck[oldId]) { delete ck[oldId]; ck[newId] = true; } else { delete ck[newId]; }
       }
       return { offList: off, checked: ck, itemMenu: null };
     });
   };
   deleteItem = () => {
     const id = this.state.itemMenu; if (!id) return;
-    const ci = id.indexOf(':'), sec = id.slice(0, ci), name = id.slice(ci + 1);
+    const item = this.splitItemId(id); if (!item) return;
+    const { sec, name } = item;
     if (this.master[sec]) this.master[sec].items = this.master[sec].items.filter(n => n !== name);
     this.setState(s => { const off = { ...s.offList }, ck = { ...s.checked }; delete off[id]; delete ck[id]; return { offList: off, checked: ck, itemMenu: null }; });
   };
@@ -629,14 +732,15 @@ class Component extends DCLogic {
     const id = e.currentTarget.dataset.id;
     delete this.master[id];
     this.stores.forEach(s => { s.order = s.order.filter(x => x !== id); });
-    const reset = this.state.addSec === id ? { addSec: 'pantry' } : {};
+    const reset = this.state.addSec === id ? { addSec: this.firstAddableSection() } : {};
     this.setState({ confirmDel: null, ...reset });
   };
   addSection = () => {
     const id = 'sec' + Date.now();
     this.master[id] = { name: '', items: [] };
     this.stores[this.state.editIdx].order.push(id);
-    this.setState({ newSecId: id, confirmDel: null });
+    const addSec = this.state.editIdx === this.state.storeIdx ? id : this.state.addSec;
+    this.setState({ newSecId: id, confirmDel: null, addSec });
   };
   openAddExisting = () => this.setState({ addExistingOpen: true });
   closeAddExisting = () => this.setState({ addExistingOpen: false });
@@ -662,7 +766,8 @@ class Component extends DCLogic {
         dragT: dragging ? 'scale(1.02)' : 'none', dragOp: dragging ? '0.97' : '1', dragZ: dragging ? 6 : 0 };
     });
     return { id: secId, name: m.name, walkNo, badge, items, remaining, empty: items.length === 0,
-      countLabel: remaining === 0 ? 'all set' : remaining + ' left' };
+      showDropZone: this.state.reorder && items.length === 0 && this.isAddableSection(secId),
+      countLabel: items.length === 0 ? 'empty' : (remaining === 0 ? 'all set' : remaining + ' left') };
   }
   itemCount(order) { return order.reduce((a, id) => a + this.master[id].items.length, 0); }
 
@@ -672,33 +777,32 @@ class Component extends DCLogic {
     if (this._ck === _key) return this._cv;
     const { view } = this.state;
     const store = this.stores[this.state.storeIdx];
-    const sections = store.order.map(sid => this.build(sid, null, null)).filter(s => !s.empty);
+    const sections = store.order.map(sid => this.build(sid, null, null)).filter(s => this.state.reorder || !s.empty);
     sections.forEach((s, i) => { s.walkNo = i + 1; });
     if (this.master.inbox) {
       const inbox = this.build('inbox', null, 'New');
       if (!inbox.empty) sections.unshift(inbox);
     }
-    const meal = this.build('meal', null, 'Anytime');
-    if (!meal.empty) sections.push(meal);
+    if (this.master.meal) {
+      const meal = this.build('meal', null, 'Anytime');
+      if (this.state.reorder || !meal.empty) sections.push(meal);
+    }
     const totalRemaining = sections.reduce((a, s) => a + s.remaining, 0);
+    const checkedCount = this.checkedVisibleItemIds().length;
 
-    // Saved catalog — every usual item, grouped by section
-    const dOrder = this.stores[this.state.defaultIdx].order;
-    const seen = new Set(), catIds = [];
-    dOrder.forEach(id => { if (this.master[id] && !seen.has(id)) { seen.add(id); catIds.push(id); } });
-    Object.keys(this.master).forEach(id => { if (id !== 'meal' && id !== 'inbox' && !seen.has(id)) { seen.add(id); catIds.push(id); } });
-    if (this.master.inbox) catIds.push('inbox');
-    catIds.push('meal');
+    // Saved catalog — sections available for the active store
+    const catIds = this.addableSectionIds();
     const catalog = catIds.map(sid => {
       const m = this.master[sid];
       const items = m.items.map(name => { const id = sid + ':' + name; const onList = !this.state.offList[id];
         return { id, name, onList, notOnList: !onList }; });
       const on = items.filter(x => x.onList).length;
-      const badge = sid === 'meal' ? 'Anytime' : (sid === 'inbox' ? 'New' : null);
+      const badge = sid === 'meal' ? 'Anytime' : null;
       return { id: sid, name: m.name, items, badge, onLabel: on + ' of ' + items.length };
     });
-    const sectionOptions = catIds.map(id => ({ id, name: this.master[id].name, isMeal: id === 'meal', selected: id === this.state.addSec }));
-    const addSecName = this.master[this.state.addSec] ? this.master[this.state.addSec].name : 'Pantry';
+    const currentAddSec = this.currentAddSection();
+    const sectionOptions = catIds.map(id => ({ id, name: this.master[id].name, isMeal: id === 'meal', selected: id === currentAddSec }));
+    const addSecName = this.master[currentAddSec] ? this.master[currentAddSec].name : 'Pantry';
     const im = this.state.itemMenu;
     const imSec = im ? im.slice(0, im.indexOf(':')) : null;
     const itemMenuName = im ? im.slice(im.indexOf(':') + 1) : '';
@@ -739,9 +843,9 @@ class Component extends DCLogic {
     const _rv = {
       // shop
       sections, storeName: store.name,
-      storeSub: this.state.reorder ? 'Drag items into the order you want' : ('Walk order · ' + totalRemaining + ' to go'),
+      storeSub: this.state.reorder ? 'Drag items within or between sections' : ('Walk order · ' + totalRemaining + ' to go'),
       storeKey: store.id, nextStore: this.nextStore, onRow: this.onRow,
-      hasItems: sections.length > 0,
+      hasItems: sections.length > 0, hasChecked: checkedCount > 0, clearChecked: this.clearChecked,
       reorder: this.state.reorder, notReorder: !this.state.reorder,
       toggleReorder: this.toggleReorder, shopDragStart: this.shopDragStart,
       reorderLabel: this.state.reorder ? 'Done' : 'Reorder',
