@@ -19,19 +19,20 @@ is the current low-conflict test phrase.
 ```
 Echo device → Alexa skill (your Developer Console account)
             → AWS Lambda function (index.js in this folder)
-            → Firebase Admin SDK → Firestore lists/shared document
+            → Firestore REST API → lists/shared document
             → same document the web app already reads/writes
 ```
 
-The Lambda merges a single atomic Firestore write using `FieldValue.arrayUnion` at
-`master.inbox.items`. This creates the `lists/shared` document or `inbox` category if needed,
-and avoids clobbering the app's own writes because it only touches the Quick Add fields.
+The Lambda performs an atomic Firestore REST commit that ensures `master.inbox.name` exists and
+appends the item to `master.inbox.items`. This creates the `lists/shared` document or `inbox`
+category if needed, and avoids clobbering the app's own writes because it only touches the Quick
+Add fields.
 
 ## Files here
 
 ```
 lambda/index.js         Skill request handlers (Launch, AddItem, Help, Cancel/Stop, Fallback)
-lambda/package.json     Dependencies: ask-sdk-core, firebase-admin
+lambda/package.json     Dependencies: ask-sdk-core
 interaction-model.json  Alexa voice interaction model (intents/slots/sample phrases)
 function.zip            Deployable package (index.js + package.json + node_modules), built via
                          `npm install` + `tar` — gitignored, regenerate if you change index.js

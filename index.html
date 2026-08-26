@@ -526,7 +526,12 @@ class Component extends DCLogic {
   componentDidMount() {
     this._hydrated = false;
     this._suppressPersist = true;
-    this._unsub = this.listDoc.onSnapshot((doc) => this.applyRemoteDoc(doc));
+    this._unsub = this.listDoc.onSnapshot((doc) => this.applyRemoteDoc(doc), (err) => {
+      console.error('Firestore sync failed', err);
+      this._suppressPersist = false;
+      this._hydrated = true;
+      this.flashToast('Could not connect to cloud', 2600);
+    });
   }
   componentWillUnmount() { this._unsub && this._unsub(); }
   componentDidUpdate() {
@@ -534,16 +539,67 @@ class Component extends DCLogic {
     if (this.dataKey() !== this._lastPersistKey) this.persist();
   }
   dataPayload(state = this.state) {
+    const master = {};
+    Object.entries(this.master).forEach(([id, sec]) => {
+      if (!sec || typeof sec !== 'object') return;
+      master[id] = {
+        name: typeof sec.name === 'string' ? sec.name : id,
+        items: Array.isArray(sec.items) ? [...sec.items] : []
+      };
+    });
     return {
-      stores: this.stores, master: this.master,
-      checked: state.checked, offList: state.offList, defaultIdx: state.defaultIdx, addSec: state.addSec, storeIdx: state.storeIdx
+      stores: this.stores.map(store => ({ id: store.id, name: store.name, order: Array.isArray(store.order) ? [...store.order] : [] })),
+      master,
+      checked: { ...state.checked },
+      offList: { ...state.offList },
+      defaultIdx: state.defaultIdx,
+      addSec: state.addSec,
+      storeIdx: state.storeIdx
     };
   }
   dataKey(state = this.state) { return JSON.stringify(this.dataPayload(state)); }
   persist() {
     const payload = this.dataPayload();
+    const deletedSectionIds = this._deletedSectionIds ? [...this._deletedSectionIds] : [];
     this._lastPersistKey = JSON.stringify(payload);
-    this.listDoc.set(payload).catch(() => {});
+    deletedSectionIds.forEach(id => {
+      if (window.firebase && firebase.firestore && firebase.firestore.FieldValue) {
+        payload.master[id] = firebase.firestore.FieldValue.delete();
+      }
+    });
+    this.listDoc.set(payload, { merge: true }).then(() => {
+      if (deletedSectionIds.length && this._deletedSectionIds) {
+        deletedSectionIds.forEach(id => this._deletedSectionIds.delete(id));
+      }
+    }).catch((err) => {
+      console.error('Firestore save failed', err);
+      this.flashToast('Could not save changes', 2600);
+    });
+  }
+  normalizeMaster(rawMaster, mergeWithDefaults = false) {
+    const source = mergeWithDefaults ? { ...this.master, ...(rawMaster || {}) } : (rawMaster || {});
+    const next = {};
+    Object.entries(source).forEach(([id, sec]) => {
+      if (!sec || typeof sec !== 'object') return;
+      next[id] = {
+        name: typeof sec.name === 'string' ? sec.name : id,
+        items: Array.isArray(sec.items) ? sec.items.filter(item => typeof item === 'string') : []
+      };
+    });
+    return next;
+  }
+  normalizeStores(rawStores, master) {
+    const stores = Array.isArray(rawStores) && rawStores.length ? rawStores : this.stores;
+    return stores.map((store, idx) => {
+      store = store && typeof store === 'object' ? store : {};
+      const fallback = this.stores[idx] || this.stores[0] || { id: 'store' + idx, name: 'Store', order: [] };
+      const order = Array.isArray(store.order) ? store.order.filter(id => master[id] && id !== 'inbox' && id !== 'meal') : fallback.order;
+      return {
+        id: typeof store.id === 'string' && store.id ? store.id : fallback.id,
+        name: typeof store.name === 'string' && store.name ? store.name : fallback.name,
+        order
+      };
+    });
   }
   setUiState(update, cb) {
     const wasSuppressed = this._suppressPersist;
@@ -570,8 +626,9 @@ class Component extends DCLogic {
       return;
     }
     const d = doc.data();
-    if (d.stores && d.stores.length) this.stores = d.stores;
-    if (d.master) this.master = d.master;
+    const hasRemoteStores = Array.isArray(d.stores) && d.stores.length;
+    if (d.master) this.master = this.normalizeMaster(d.master, !hasRemoteStores);
+    this.stores = this.normalizeStores(d.stores, this.master);
     const storeIdx = typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0;
     const defaultIdx = typeof d.defaultIdx === 'number' && d.defaultIdx < this.stores.length ? d.defaultIdx : 0;
     const addSec = this.isAddableSection(d.addSec, storeIdx) ? d.addSec : this.firstAddableSection(storeIdx);
@@ -871,6 +928,8 @@ class Component extends DCLogic {
   doDelete = (e) => {
     const id = e.currentTarget.dataset.id;
     delete this.master[id];
+    if (!this._deletedSectionIds) this._deletedSectionIds = new Set();
+    this._deletedSectionIds.add(id);
     this.stores.forEach(s => { s.order = s.order.filter(x => x !== id); });
     const reset = this.state.addSec === id ? { addSec: this.firstAddableSection() } : {};
     this.setState({ confirmDel: null, ...reset });
@@ -893,8 +952,10 @@ class Component extends DCLogic {
 
   build(secId, walkNo, badge) {
     const m = this.master[secId];
+    if (!m) return { id: secId, name: secId, walkNo, badge, items: [], remaining: 0, empty: true, showDropZone: false, countLabel: 'empty' };
     let remaining = 0;
-    const items = m.items.filter(n => !this.state.offList[secId + ':' + n]).map((name) => {
+    const names = Array.isArray(m.items) ? m.items : [];
+    const items = names.filter(n => !this.state.offList[secId + ':' + n]).map((name) => {
       const id = secId + ':' + name;
       const checked = !!this.state.checked[id];
       if (!checked) remaining++;
@@ -911,7 +972,7 @@ class Component extends DCLogic {
       showDropZone: this.state.reorder && items.length === 0 && this.isAddableSection(secId),
       countLabel: items.length === 0 ? 'empty' : (remaining === 0 ? 'all set' : remaining + ' left') };
   }
-  itemCount(order) { return order.reduce((a, id) => a + this.master[id].items.length, 0); }
+  itemCount(order) { return order.reduce((a, id) => a + (this.master[id] && this.master[id].items ? this.master[id].items.length : 0), 0); }
 
   renderVals() {
     const _s = this.state;
