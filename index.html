@@ -16,7 +16,6 @@
     appId: "1:397233407399:web:68b7dd78c7fb49a4e82282"
   });
   window.db = firebase.firestore();
-  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 </script>
 </head>
 <body>
@@ -449,7 +448,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  appVersion = 'v18';
+  appVersion = 'v19';
   stores = [
     { id: 'harvest', name: 'Harvest Market', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] },
     { id: 'corner',  name: 'Corner Grocer',  order: ['pantry', 'dairy', 'frozen', 'produce', 'bakery', 'deli'] },
@@ -605,7 +604,7 @@ class Component extends DCLogic {
     this.state.offList = this.normalizeItemState(this.state.offList);
     this._hydrated = false;
     this._suppressPersist = true;
-    this._unsub = this.listDoc.onSnapshot((doc) => this.applyRemoteDoc(doc), (err) => {
+    this._unsub = this.listDoc.onSnapshot({ includeMetadataChanges: true }, (doc) => this.applyRemoteDoc(doc), (err) => {
       console.error('Firestore sync failed', err);
       this._suppressPersist = false;
       this._hydrated = true;
@@ -850,6 +849,15 @@ class Component extends DCLogic {
   }
   applyRemoteDoc(doc, extraState = {}, afterApply) {
     const exists = typeof doc.exists === 'function' ? doc.exists() : doc.exists;
+    const fromCache = !!(doc.metadata && doc.metadata.fromCache);
+    const hasPendingWrites = !!(doc.metadata && doc.metadata.hasPendingWrites);
+    if (fromCache && !hasPendingWrites && !this._sawServerSnapshot) {
+      this._suppressPersist = false;
+      this._hydrated = true;
+      if (afterApply) afterApply();
+      return;
+    }
+    if (!fromCache && !hasPendingWrites) this._sawServerSnapshot = true;
     if (!exists) {
       this._suppressPersist = false;
       this._hydrated = true;
