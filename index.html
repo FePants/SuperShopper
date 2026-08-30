@@ -449,7 +449,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  appVersion = 'v17';
+  appVersion = 'v18';
   stores = [
     { id: 'harvest', name: 'Harvest Market', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] },
     { id: 'corner',  name: 'Corner Grocer',  order: ['pantry', 'dairy', 'frozen', 'produce', 'bakery', 'deli'] },
@@ -529,27 +529,15 @@ class Component extends DCLogic {
     return 'item-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   }
   normalizeItems(items, secId) {
-    const seenNames = {};
-    const seenIds = {};
     return (Array.isArray(items) ? items : []).map(item => {
       const name = this.itemName(item);
       if (typeof name !== 'string' || !name) return null;
-      const nameCount = (seenNames[name] || 0) + 1;
-      seenNames[name] = nameCount;
-      const baseId = item && typeof item === 'object' && typeof item.id === 'string' && item.id ? item.id : this.legacyItemId(secId, name, nameCount);
-      let id = baseId;
-      let idCount = 1;
-      while (seenIds[id]) {
-        idCount++;
-        id = baseId + '-' + idCount;
-      }
-      seenIds[id] = true;
-      return { id, name };
+      return name;
     }).filter(Boolean);
   }
   itemDomId(secId, item, occurrence) {
     const name = this.itemName(item);
-    const itemId = item && typeof item === 'object' && item.id ? item.id : this.legacyItemId(secId, name, occurrence || 1);
+    const itemId = this.legacyItemId(secId, name, occurrence || 1);
     return secId + ':' + itemId;
   }
   findItem(id) {
@@ -707,11 +695,14 @@ class Component extends DCLogic {
   }
   mergeItems(baseItems = [], remoteItems = [], localItems = []) {
     if (this.sameData(localItems, baseItems)) return remoteItems;
-    const baseIds = new Set(baseItems.map(item => item && item.id).filter(Boolean));
-    const localIds = new Set(localItems.map(item => item && item.id).filter(Boolean));
-    const merged = localItems.map(item => ({ ...item }));
+      const baseIds = new Set(baseItems.map((item, i) => this.itemDomId('merge', item, i + 1)));
+      const localIds = new Set(localItems.map((item, i) => this.itemDomId('merge', item, i + 1)));
+      const merged = localItems.map(item => this.itemName(item)).filter(Boolean);
     remoteItems.forEach(item => {
-      if (item && item.id && !localIds.has(item.id) && !baseIds.has(item.id)) merged.push({ ...item });
+      const name = this.itemName(item);
+      if (!name) return;
+      const id = this.itemDomId('merge', item, merged.filter(x => x === name).length + 1);
+      if (!localIds.has(id) && !baseIds.has(id)) merged.push(name);
     });
     return merged;
   }
@@ -999,8 +990,7 @@ class Component extends DCLogic {
     const nextName = (rawName || '').trim();
     const arr = this.master[item.sec].items || [];
     if (!nextName || nextName === item.name || item.index < 0) { this.setState({ editItem: null }); return; }
-    const itemId = item.entry && typeof item.entry === 'object' && item.entry.id ? item.entry.id : item.itemId;
-    arr[item.index] = { id: itemId, name: nextName };
+    arr[item.index] = nextName;
     this.setState({ editItem: null });
   }
 
@@ -1096,9 +1086,8 @@ class Component extends DCLogic {
   addItem(secId, name) {
     if (!name || !name.trim() || !this.master[secId] || !this.isAddableSection(secId)) return;
     const nm = name.trim();
-    const item = { id: this.newItemId(), name: nm };
-    this.master[secId].items.unshift(item);
-    const id = secId + ':' + item.id;
+    this.master[secId].items.unshift(nm);
+    const id = this.itemDomId(secId, nm, 1);
     const legacyId = secId + ':' + nm;
     this.recordSparseOverride('offList', id, false);
     this.recordSparseOverride('offList', legacyId, false);
