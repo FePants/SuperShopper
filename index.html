@@ -178,7 +178,10 @@
     <sc-if value="{{ isStores }}" hint-placeholder-val="{{ false }}">
     <div style="flex:1;min-height:0;display:flex;flex-direction:column;animation:viewIn .3s ease;">
       <div style="flex:none;padding:8px 22px 14px;">
-        <div style="font-size:12.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#a19786;margin-bottom:2px;">Setup</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+          <div style="font-size:12.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#a19786;">Setup</div>
+          <span style="font-size:11px;font-weight:700;color:#8c491a;background:#ffe1d0;border-radius:999px;padding:3px 8px;">{{ appVersion }}</span>
+        </div>
         <div style="font-family:'Caprasimo',serif;font-size:30px;line-height:1.05;">Your stores</div>
         <div style="font-size:13px;color:#82796a;margin-top:6px;">Set the section order to match how you walk each store.</div>
       </div>
@@ -446,6 +449,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
+  appVersion = 'v17';
   stores = [
     { id: 'harvest', name: 'Harvest Market', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] },
     { id: 'corner',  name: 'Corner Grocer',  order: ['pantry', 'dairy', 'frozen', 'produce', 'bakery', 'deli'] },
@@ -503,7 +507,87 @@ class Component extends DCLogic {
   }
   splitItemId(id) {
     const ci = id ? id.indexOf(':') : -1;
-    return ci > 0 ? { sec: id.slice(0, ci), name: id.slice(ci + 1) } : null;
+    return ci > 0 ? { sec: id.slice(0, ci), itemId: id.slice(ci + 1) } : null;
+  }
+  itemName(item) {
+    if (typeof item === 'string') return item;
+    return item && typeof item.name === 'string' ? item.name : '';
+  }
+  hashText(text) {
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+  legacyItemId(secId, name, occurrence) {
+    return 'legacy-' + this.hashText(secId + '\0' + name) + '-' + occurrence;
+  }
+  newItemId() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return 'item-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+  normalizeItems(items, secId) {
+    const seenNames = {};
+    const seenIds = {};
+    return (Array.isArray(items) ? items : []).map(item => {
+      const name = this.itemName(item);
+      if (typeof name !== 'string' || !name) return null;
+      const nameCount = (seenNames[name] || 0) + 1;
+      seenNames[name] = nameCount;
+      const baseId = item && typeof item === 'object' && typeof item.id === 'string' && item.id ? item.id : this.legacyItemId(secId, name, nameCount);
+      let id = baseId;
+      let idCount = 1;
+      while (seenIds[id]) {
+        idCount++;
+        id = baseId + '-' + idCount;
+      }
+      seenIds[id] = true;
+      return { id, name };
+    }).filter(Boolean);
+  }
+  itemDomId(secId, item, occurrence) {
+    const name = this.itemName(item);
+    const itemId = item && typeof item === 'object' && item.id ? item.id : this.legacyItemId(secId, name, occurrence || 1);
+    return secId + ':' + itemId;
+  }
+  findItem(id) {
+    const parsed = this.splitItemId(id);
+    if (!parsed || !this.master[parsed.sec] || !Array.isArray(this.master[parsed.sec].items)) return null;
+    const seenNames = {};
+    const arr = this.master[parsed.sec].items;
+    for (let i = 0; i < arr.length; i++) {
+      const entry = arr[i];
+      const name = this.itemName(entry);
+      const occurrence = (seenNames[name] || 0) + 1;
+      seenNames[name] = occurrence;
+      const domId = this.itemDomId(parsed.sec, entry, occurrence);
+      if (domId === id) return { sec: parsed.sec, itemId: parsed.itemId, index: i, entry, name };
+    }
+    return null;
+  }
+  normalizeItemState(rawState) {
+    const next = {};
+    Object.entries(rawState || {}).forEach(([id, value]) => {
+      if (!value) return;
+      const parsed = this.splitItemId(id);
+      if (!parsed || !this.master[parsed.sec]) return;
+      const direct = this.findItem(id);
+      if (direct) {
+        next[id] = true;
+        return;
+      }
+      const legacyName = parsed.itemId;
+      const seenNames = {};
+      (this.master[parsed.sec].items || []).forEach(item => {
+        const name = this.itemName(item);
+        const occurrence = (seenNames[name] || 0) + 1;
+        seenNames[name] = occurrence;
+        if (name === legacyName) next[this.itemDomId(parsed.sec, item, occurrence)] = true;
+      });
+    });
+    return next;
   }
   listSectionIds(storeIdx = this.state.storeIdx) {
     const ids = this.addableSectionIds(storeIdx);
@@ -515,8 +599,12 @@ class Component extends DCLogic {
     this.listSectionIds(storeIdx).forEach(secId => {
       const m = this.master[secId];
       if (!m || !m.items) return;
-      m.items.forEach(name => {
-        const id = secId + ':' + name;
+      const seenNames = {};
+      m.items.forEach(item => {
+        const name = this.itemName(item);
+        const occurrence = (seenNames[name] || 0) + 1;
+        seenNames[name] = occurrence;
+        const id = this.itemDomId(secId, item, occurrence);
         if (state.checked[id] && !state.offList[id]) ids.push(id);
       });
     });
@@ -524,6 +612,9 @@ class Component extends DCLogic {
   }
 
   componentDidMount() {
+    this.master = this.normalizeMaster(this.master, false);
+    this.state.checked = this.normalizeItemState(this.state.checked);
+    this.state.offList = this.normalizeItemState(this.state.offList);
     this._hydrated = false;
     this._suppressPersist = true;
     this._unsub = this.listDoc.onSnapshot((doc) => this.applyRemoteDoc(doc), (err) => {
@@ -532,11 +623,18 @@ class Component extends DCLogic {
       this._hydrated = true;
       this.flashToast('Could not connect to cloud', 2600);
     });
+    this.startAutoRefresh();
   }
-  componentWillUnmount() { this._unsub && this._unsub(); }
+  componentWillUnmount() {
+    this._unsub && this._unsub();
+    clearTimeout(this._persistTimer);
+    clearTimeout(this._t);
+    clearInterval(this._refreshTimer);
+    if (this._visibilityRefresh) document.removeEventListener('visibilitychange', this._visibilityRefresh);
+  }
   componentDidUpdate() {
     if (!this._hydrated || this._suppressPersist) return;
-    if (this.dataKey() !== this._lastPersistKey) this.persist();
+    if (this.dataKey() !== this._lastPersistKey) this.schedulePersist();
   }
   dataPayload(state = this.state) {
     const master = {};
@@ -544,7 +642,7 @@ class Component extends DCLogic {
       if (!sec || typeof sec !== 'object') return;
       master[id] = {
         name: typeof sec.name === 'string' ? sec.name : id,
-        items: Array.isArray(sec.items) ? [...sec.items] : []
+        items: this.normalizeItems(sec.items, id)
       };
     });
     return {
@@ -558,23 +656,167 @@ class Component extends DCLogic {
     };
   }
   dataKey(state = this.state) { return JSON.stringify(this.dataPayload(state)); }
+  clonePayload(payload) {
+    return JSON.parse(JSON.stringify(payload || {}));
+  }
+  sameData(a, b) {
+    return JSON.stringify(a || null) === JSON.stringify(b || null);
+  }
+  mergeSparseMap(base = {}, remote = {}, local = {}) {
+    const next = { ...remote };
+    const keys = new Set([...Object.keys(base || {}), ...Object.keys(local || {})]);
+    keys.forEach(key => {
+      const baseOn = !!base[key];
+      const localOn = !!local[key];
+      if (localOn === baseOn) return;
+      if (localOn) next[key] = true;
+      else delete next[key];
+    });
+    return next;
+  }
+  recordSparseOverride(mapName, id, on) {
+    if (!id) return;
+    if (!this._localSparseOverrides) this._localSparseOverrides = { checked: {}, offList: {} };
+    if (!this._localSparseOverrides[mapName]) this._localSparseOverrides[mapName] = {};
+    this._localSparseOverrides[mapName][id] = !!on;
+  }
+  clearSparseOverride(mapName, id) {
+    if (this._localSparseOverrides && this._localSparseOverrides[mapName]) {
+      delete this._localSparseOverrides[mapName][id];
+    }
+  }
+  applySparseOverrides(mapName, remote = {}) {
+    const next = { ...remote };
+    const overrides = this._localSparseOverrides && this._localSparseOverrides[mapName];
+    if (!overrides) return next;
+    Object.entries(overrides).forEach(([id, on]) => {
+      if (on) next[id] = true;
+      else delete next[id];
+    });
+    return next;
+  }
+  reconcileSparseOverrides(mapName, remote = {}) {
+    const overrides = this._localSparseOverrides && this._localSparseOverrides[mapName];
+    if (!overrides) return;
+    Object.entries(overrides).forEach(([id, on]) => {
+      if (!!remote[id] === !!on) delete overrides[id];
+    });
+  }
+  mergeValue(base, remote, local) {
+    return this.sameData(local, base) ? remote : local;
+  }
+  mergeItems(baseItems = [], remoteItems = [], localItems = []) {
+    if (this.sameData(localItems, baseItems)) return remoteItems;
+    const baseIds = new Set(baseItems.map(item => item && item.id).filter(Boolean));
+    const localIds = new Set(localItems.map(item => item && item.id).filter(Boolean));
+    const merged = localItems.map(item => ({ ...item }));
+    remoteItems.forEach(item => {
+      if (item && item.id && !localIds.has(item.id) && !baseIds.has(item.id)) merged.push({ ...item });
+    });
+    return merged;
+  }
+  mergeMaster(base = {}, remote = {}, local = {}) {
+    const next = {};
+    const ids = new Set([...Object.keys(base || {}), ...Object.keys(remote || {}), ...Object.keys(local || {})]);
+    ids.forEach(id => {
+      const baseSec = base[id] || null;
+      const remoteSec = remote[id] || null;
+      const localSec = local[id] || null;
+      if (!localSec) {
+        if (baseSec) return;
+        if (remoteSec) next[id] = remoteSec;
+        return;
+      }
+      if (this.sameData(localSec, baseSec)) {
+        if (remoteSec) next[id] = remoteSec;
+        return;
+      }
+      next[id] = {
+        name: !remoteSec || localSec.name !== (baseSec && baseSec.name) ? localSec.name : remoteSec.name,
+        items: this.mergeItems(baseSec && baseSec.items, remoteSec && remoteSec.items, localSec.items)
+      };
+    });
+    return next;
+  }
+  mergeStores(base = [], remote = [], local = []) {
+    if (this.sameData(local, base)) return remote;
+    const baseIds = new Set(base.map(store => store && store.id).filter(Boolean));
+    const localIds = new Set(local.map(store => store && store.id).filter(Boolean));
+    const merged = local.map(store => ({ ...store, order: Array.isArray(store.order) ? [...store.order] : [] }));
+    remote.forEach(store => {
+      if (store && store.id && !localIds.has(store.id) && !baseIds.has(store.id)) {
+        merged.push({ ...store, order: Array.isArray(store.order) ? [...store.order] : [] });
+      }
+    });
+    return merged;
+  }
+  markPersistNeeded() {
+    this._pendingPersist = true;
+    if (this._hydrated && !this._suppressPersist) this.schedulePersist(0);
+  }
+  schedulePersist(delay = 350) {
+    clearTimeout(this._persistTimer);
+    this._persistTimer = setTimeout(() => this.persist().catch(() => {}), delay);
+  }
   persist() {
+    clearTimeout(this._persistTimer);
+    if (this._persistInFlight) {
+      this._pendingPersist = true;
+      return this._persistPromise || Promise.resolve();
+    }
     const payload = this.dataPayload();
+    const key = JSON.stringify(payload);
     const deletedSectionIds = this._deletedSectionIds ? [...this._deletedSectionIds] : [];
-    this._lastPersistKey = JSON.stringify(payload);
+    if (!deletedSectionIds.length && key === this._lastPersistKey) return Promise.resolve();
     deletedSectionIds.forEach(id => {
       if (window.firebase && firebase.firestore && firebase.firestore.FieldValue) {
         payload.master[id] = firebase.firestore.FieldValue.delete();
       }
     });
-    this.listDoc.set(payload, { merge: true }).then(() => {
+    if (window.firebase && firebase.firestore && firebase.firestore.FieldValue) {
+      payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+    }
+    this._persistInFlight = true;
+    this._pendingPersist = false;
+    let failed = false;
+    this._persistPromise = this.listDoc.set(payload, { merge: true }).then(() => {
+      this._lastPersistKey = key;
+      this._lastPersistPayload = this.clonePayload(JSON.parse(key));
       if (deletedSectionIds.length && this._deletedSectionIds) {
         deletedSectionIds.forEach(id => this._deletedSectionIds.delete(id));
       }
     }).catch((err) => {
+      failed = true;
       console.error('Firestore save failed', err);
       this.flashToast('Could not save changes', 2600);
+      throw err;
+    }).finally(() => {
+      this._persistInFlight = false;
+      const shouldPersistAgain = this._pendingPersist || this.dataKey() !== this._lastPersistKey;
+      this._pendingPersist = false;
+      if (shouldPersistAgain) this.schedulePersist(failed ? 8000 : 900);
     });
+    return this._persistPromise;
+  }
+  flushLocalChanges() {
+    clearTimeout(this._persistTimer);
+    if (!this._hydrated || this._suppressPersist) return Promise.resolve();
+    if (this._persistInFlight) {
+      this._pendingPersist = this.dataKey() !== this._lastPersistKey;
+      return (this._persistPromise || Promise.resolve()).then(() => {
+        if (this.dataKey() !== this._lastPersistKey) return this.persist();
+      });
+    }
+    if (this.dataKey() !== this._lastPersistKey) return this.persist();
+    return Promise.resolve();
+  }
+  startAutoRefresh() {
+    clearInterval(this._refreshTimer);
+    this._refreshTimer = setInterval(() => this.refreshData({ automatic: true }), 60000);
+    this._visibilityRefresh = () => {
+      if (!document.hidden) this.refreshData({ automatic: true });
+    };
+    document.addEventListener('visibilitychange', this._visibilityRefresh);
   }
   normalizeMaster(rawMaster, mergeWithDefaults = false) {
     const source = mergeWithDefaults ? { ...this.master, ...(rawMaster || {}) } : (rawMaster || {});
@@ -583,7 +825,7 @@ class Component extends DCLogic {
       if (!sec || typeof sec !== 'object') return;
       next[id] = {
         name: typeof sec.name === 'string' ? sec.name : id,
-        items: Array.isArray(sec.items) ? sec.items.filter(item => typeof item === 'string') : []
+        items: this.normalizeItems(sec.items, id)
       };
     });
     return next;
@@ -620,43 +862,75 @@ class Component extends DCLogic {
     if (!exists) {
       this._suppressPersist = false;
       this._hydrated = true;
-      this.persist();
+      this.persist().catch(() => {});
       if (Object.keys(extraState).length) this.setUiState(extraState, afterApply);
       else if (afterApply) afterApply();
       return;
     }
     const d = doc.data();
     const hasRemoteStores = Array.isArray(d.stores) && d.stores.length;
-    if (d.master) this.master = this.normalizeMaster(d.master, !hasRemoteStores);
-    this.stores = this.normalizeStores(d.stores, this.master);
-    const storeIdx = typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0;
-    const defaultIdx = typeof d.defaultIdx === 'number' && d.defaultIdx < this.stores.length ? d.defaultIdx : 0;
-    const addSec = this.isAddableSection(d.addSec, storeIdx) ? d.addSec : this.firstAddableSection(storeIdx);
+    const localPayload = this.dataPayload();
+    const basePayload = this._lastPersistPayload || null;
+    const hasLocalChanges = !!(this._hydrated && basePayload && (
+      JSON.stringify(localPayload) !== this._lastPersistKey || this._persistInFlight || this._pendingPersist
+    ));
+    const remoteMaster = d.master ? this.normalizeMaster(d.master, !hasRemoteStores) : this.normalizeMaster(this.master, false);
+    const remoteStores = this.normalizeStores(d.stores, remoteMaster);
+    this.master = hasLocalChanges ? this.mergeMaster(basePayload.master, remoteMaster, localPayload.master) : remoteMaster;
+    this.stores = hasLocalChanges ? this.mergeStores(basePayload.stores, remoteStores, localPayload.stores) : remoteStores;
+    const remoteStoreIdx = typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0;
+    const remoteDefaultIdx = typeof d.defaultIdx === 'number' && d.defaultIdx < this.stores.length ? d.defaultIdx : 0;
+    const storeIdx = hasLocalChanges ? this.mergeValue(basePayload.storeIdx, remoteStoreIdx, localPayload.storeIdx) : remoteStoreIdx;
+    const defaultIdx = hasLocalChanges ? this.mergeValue(basePayload.defaultIdx, remoteDefaultIdx, localPayload.defaultIdx) : remoteDefaultIdx;
+    const remoteAddSec = this.isAddableSection(d.addSec, storeIdx) ? d.addSec : this.firstAddableSection(storeIdx);
+    const addSec = hasLocalChanges ? this.mergeValue(basePayload.addSec, remoteAddSec, localPayload.addSec) : remoteAddSec;
+    const remoteChecked = this.normalizeItemState(d.checked || {});
+    const remoteOffList = this.normalizeItemState(d.offList || {});
+    this.reconcileSparseOverrides('checked', remoteChecked);
+    this.reconcileSparseOverrides('offList', remoteOffList);
+    const checkedBase = hasLocalChanges ? this.mergeSparseMap(basePayload.checked, remoteChecked, localPayload.checked) : remoteChecked;
+    const offListBase = hasLocalChanges ? this.mergeSparseMap(basePayload.offList, remoteOffList, localPayload.offList) : remoteOffList;
+    const checked = this.applySparseOverrides('checked', checkedBase);
+    const offList = this.applySparseOverrides('offList', offListBase);
     this._suppressPersist = true;
     this.setState({
-      checked: d.checked || {},
-      offList: d.offList || {},
+      checked,
+      offList,
       defaultIdx,
       addSec,
       storeIdx,
       ...extraState
     }, () => {
-      this._lastPersistKey = this.dataKey();
       this._suppressPersist = false;
       this._hydrated = true;
+      if (hasLocalChanges) this.markPersistNeeded();
+      else {
+        const cleanPayload = this.dataPayload();
+        this._lastPersistKey = JSON.stringify(cleanPayload);
+        this._lastPersistPayload = this.clonePayload(cleanPayload);
+      }
       if (afterApply) afterApply();
     });
   }
-  refreshData = () => {
-    if (this.state.refreshing) return;
-    this.setUiState({ refreshing: true, toast: 'Refreshing...' });
-    this.listDoc.get({ source: 'server' }).then((doc) => {
-      this.applyRemoteDoc(doc, { refreshing: false, editItem: null, itemMenu: null, toast: 'Synced from cloud' }, () => {
+  refreshData = (opts = {}) => {
+    const automatic = !!(opts && opts.automatic);
+    if (this.state.refreshing) return Promise.resolve();
+    if (automatic && !this._hydrated) return Promise.resolve();
+    const dirty = this.dataKey() !== this._lastPersistKey || this._persistInFlight || this._pendingPersist;
+    if (automatic && dirty) {
+      return this.flushLocalChanges().catch(() => {});
+    }
+    if (!automatic) this.setUiState({ refreshing: true, toast: 'Refreshing...' });
+    return this.flushLocalChanges().then(() => this.listDoc.get({ source: 'server' })).then((doc) => {
+      const extraState = automatic ? {} : { refreshing: false, editItem: null, itemMenu: null, toast: 'Synced from cloud' };
+      this.applyRemoteDoc(doc, extraState, () => {
+        if (automatic) return;
         clearTimeout(this._t);
         this._t = setTimeout(() => this.setUiState({ toast: '' }), 1900);
       });
     }).catch(() => {
-      this.setUiState({ refreshing: false, toast: 'Could not reach cloud' }, () => {
+      if (automatic) return;
+      this.setUiState({ refreshing: false, toast: 'Could not sync cloud' }, () => {
         clearTimeout(this._t);
         this._t = setTimeout(() => this.setUiState({ toast: '' }), 2400);
       });
@@ -720,34 +994,33 @@ class Component extends DCLogic {
     }
   };
   renameItem(oldId, rawName) {
-    const item = this.splitItemId(oldId);
+    const item = this.findItem(oldId);
     if (!item || !this.master[item.sec]) { this.setState({ editItem: null }); return; }
     const nextName = (rawName || '').trim();
     const arr = this.master[item.sec].items || [];
-    const from = arr.indexOf(item.name);
-    if (!nextName || nextName === item.name || from < 0) { this.setState({ editItem: null }); return; }
-    const existing = arr.indexOf(nextName);
-    if (existing >= 0 && existing !== from) arr.splice(from, 1);
-    else arr[from] = nextName;
-    const newId = item.sec + ':' + nextName;
-    this.setState(s => {
-      const off = { ...s.offList }, ck = { ...s.checked };
-      const wasOff = !!off[oldId], wasChecked = !!ck[oldId];
-      delete off[oldId]; delete ck[oldId];
-      if (wasOff) off[newId] = true; else delete off[newId];
-      if (wasChecked) ck[newId] = true; else delete ck[newId];
-      return { offList: off, checked: ck, editItem: null, itemMenu: s.itemMenu === oldId ? newId : s.itemMenu };
-    });
+    if (!nextName || nextName === item.name || item.index < 0) { this.setState({ editItem: null }); return; }
+    const itemId = item.entry && typeof item.entry === 'object' && item.entry.id ? item.entry.id : item.itemId;
+    arr[item.index] = { id: itemId, name: nextName };
+    this.setState({ editItem: null });
   }
 
-  toggle(id) { this.setState(s => ({ checked: { ...s.checked, [id]: !s.checked[id] } })); }
+  toggle(id) {
+    const nextChecked = !this.state.checked[id];
+    this.recordSparseOverride('checked', id, nextChecked);
+    this.setState(s => ({ checked: { ...s.checked, [id]: !s.checked[id] } }));
+  }
   onRow = (e) => { if (this.state.reorder) return; const id = e.currentTarget.dataset.id; if (id && !this.shouldSuppressItemClick(id)) this.toggle(id); };
   clearChecked = () => {
     this.setState(s => {
       const ids = this.checkedVisibleItemIds(s.storeIdx, s);
       if (!ids.length) return null;
       const off = { ...s.offList }, ck = { ...s.checked };
-      ids.forEach(id => { off[id] = true; delete ck[id]; });
+      ids.forEach(id => {
+        off[id] = true;
+        delete ck[id];
+        this.recordSparseOverride('offList', id, true);
+        this.recordSparseOverride('checked', id, false);
+      });
       return { offList: off, checked: ck };
     });
   };
@@ -763,7 +1036,7 @@ class Component extends DCLogic {
   };
   shopDragMove = (ev) => {
     const id = this._shopDragCurrentId || this.state.shopDragId; if (!id) return;
-    const fromItem = this.splitItemId(id); if (!fromItem) return;
+    const fromItem = this.findItem(id); if (!fromItem) return;
     const targets = Array.from(document.querySelectorAll('[data-shoprow], [data-shopdrop]'));
     let target = null;
     for (const r of targets) { const b = r.getBoundingClientRect(); if (ev.clientY >= b.top && ev.clientY <= b.bottom) { target = r; break; } }
@@ -775,29 +1048,34 @@ class Component extends DCLogic {
     const fromArr = this.master[fromItem.sec] && this.master[fromItem.sec].items;
     const toArr = this.master[targetSec].items;
     if (!fromArr || !toArr) return;
-    const from = fromArr.indexOf(fromItem.name);
+    const from = fromItem.index;
     if (from < 0) return;
     if (targetSec === fromItem.sec) {
       if (!targetId) return;
-      const toItem = this.splitItemId(targetId);
-      const to = toItem ? fromArr.indexOf(toItem.name) : -1;
+      const toItem = this.findItem(targetId);
+      const to = toItem ? toItem.index : -1;
       if (to < 0) return;
       fromArr.splice(to, 0, fromArr.splice(from, 1)[0]);
       this.forceUpdate();
       return;
     }
-    fromArr.splice(from, 1);
-    const toItem = this.splitItemId(targetId);
-    const to = toItem ? toArr.indexOf(toItem.name) : -1;
-    toArr.splice(to >= 0 ? to : 0, 0, fromItem.name);
-    const oldId = fromItem.sec + ':' + fromItem.name;
-    const newId = targetSec + ':' + fromItem.name;
+    const moved = fromArr.splice(from, 1)[0];
+    const toItem = this.findItem(targetId);
+    const to = toItem && toItem.sec === targetSec ? toItem.index : -1;
+    toArr.splice(to >= 0 ? to : 0, 0, moved);
+    const itemId = moved && typeof moved === 'object' && moved.id ? moved.id : fromItem.itemId;
+    const oldId = fromItem.sec + ':' + itemId;
+    const newId = targetSec + ':' + itemId;
     this._shopDragCurrentId = newId;
     this.setState(s => {
       const off = { ...s.offList }, ck = { ...s.checked };
       delete off[oldId];
       delete off[newId];
+      this.recordSparseOverride('offList', oldId, false);
+      this.recordSparseOverride('offList', newId, false);
       if (ck[oldId]) { delete ck[oldId]; ck[newId] = true; } else { delete ck[newId]; }
+      this.recordSparseOverride('checked', oldId, false);
+      this.recordSparseOverride('checked', newId, !!ck[newId]);
       return { offList: off, checked: ck, shopDragId: newId };
     });
   };
@@ -806,7 +1084,6 @@ class Component extends DCLogic {
     window.removeEventListener('pointerup', this._sup);
     this._shopDragCurrentId = null;
     this.setState({ shopDragId: null });
-    this.persist();
   };
   nextStore = () => {
     const next = (this.state.storeIdx + 1) % this.stores.length;
@@ -819,19 +1096,31 @@ class Component extends DCLogic {
   addItem(secId, name) {
     if (!name || !name.trim() || !this.master[secId] || !this.isAddableSection(secId)) return;
     const nm = name.trim();
-    this.master[secId].items.unshift(nm);
-    const id = secId + ':' + nm;
-    this.setState(s => { const off = { ...s.offList }; delete off[id]; return { offList: off }; });
+    const item = { id: this.newItemId(), name: nm };
+    this.master[secId].items.unshift(item);
+    const id = secId + ':' + item.id;
+    const legacyId = secId + ':' + nm;
+    this.recordSparseOverride('offList', id, false);
+    this.recordSparseOverride('offList', legacyId, false);
+    this.setState(s => { const off = { ...s.offList }; delete off[id]; delete off[legacyId]; return { offList: off }; });
   }
   goSaved = () => this.setState({ view: 'saved' });
   toggleList = (e) => {
     const id = e.currentTarget.dataset.id;
     if (this.shouldSuppressItemClick(id)) return;
-    const item = this.splitItemId(id);
+    const item = this.findItem(id);
     if (!item || !this.isAddableSection(item.sec)) return;
     this.setState(s => {
       const off = { ...s.offList }, ck = { ...s.checked };
-      if (off[id]) { delete off[id]; } else { off[id] = true; delete ck[id]; }
+      if (off[id]) {
+        delete off[id];
+        this.recordSparseOverride('offList', id, false);
+      } else {
+        off[id] = true;
+        delete ck[id];
+        this.recordSparseOverride('offList', id, true);
+        this.recordSparseOverride('checked', id, false);
+      }
       return { offList: off, checked: ck };
     });
   };
@@ -878,27 +1167,35 @@ class Component extends DCLogic {
   moveItem = (e) => {
     const target = e.currentTarget.dataset.id;
     const id = this.state.itemMenu; if (!id) return;
-    const item = this.splitItemId(id); if (!item || !this.isAddableSection(target)) return;
-    const { sec, name } = item;
+    const item = this.findItem(id); if (!item || !this.isAddableSection(target)) return;
+    const { sec } = item;
     if (target !== sec && this.master[target]) {
-      this.master[sec].items = this.master[sec].items.filter(n => n !== name);
-      this.master[target].items.unshift(name);
+      const moved = this.master[sec].items.splice(item.index, 1)[0];
+      this.master[target].items.unshift(moved);
     }
-    const oldId = sec + ':' + name, newId = target + ':' + name;
+    const movedItem = target !== sec && this.master[target] ? this.master[target].items[0] : item.entry;
+    const itemId = movedItem && typeof movedItem === 'object' && movedItem.id ? movedItem.id : item.itemId;
+    const oldId = sec + ':' + itemId, newId = target + ':' + itemId;
     this.setState(s => {
       const off = { ...s.offList }, ck = { ...s.checked };
       if (target !== sec) {
         if (off[oldId]) { delete off[oldId]; off[newId] = true; } else { delete off[newId]; }
         if (ck[oldId]) { delete ck[oldId]; ck[newId] = true; } else { delete ck[newId]; }
+        this.recordSparseOverride('offList', oldId, false);
+        this.recordSparseOverride('offList', newId, !!off[newId]);
+        this.recordSparseOverride('checked', oldId, false);
+        this.recordSparseOverride('checked', newId, !!ck[newId]);
       }
       return { offList: off, checked: ck, itemMenu: null };
     });
   };
   deleteItem = () => {
     const id = this.state.itemMenu; if (!id) return;
-    const item = this.splitItemId(id); if (!item) return;
-    const { sec, name } = item;
-    if (this.master[sec]) this.master[sec].items = this.master[sec].items.filter(n => n !== name);
+    const item = this.findItem(id); if (!item) return;
+    const { sec } = item;
+    if (this.master[sec]) this.master[sec].items.splice(item.index, 1);
+    this.clearSparseOverride('offList', id);
+    this.clearSparseOverride('checked', id);
     this.setState(s => { const off = { ...s.offList }, ck = { ...s.checked }; delete off[id]; delete ck[id]; return { offList: off, checked: ck, itemMenu: null }; });
   };
 
@@ -907,7 +1204,7 @@ class Component extends DCLogic {
   openStore = (e) => this.setState({ view: 'edit', editIdx: +e.currentTarget.dataset.idx });
   back = () => this.setState({ view: 'stores' });
   setDefault = () => this.setState({ defaultIdx: this.state.editIdx });
-  renameStore = (e) => { const v = e.target.value.trim(); if (v) { this.stores[this.state.editIdx].name = v; this.persist(); } };
+  renameStore = (e) => { const v = e.target.value.trim(); if (v) { this.stores[this.state.editIdx].name = v; this.markPersistNeeded(); } };
   addStore = () => {
     const id = 'store' + Date.now();
     this.stores.push({ id, name: 'New store', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] });
@@ -922,7 +1219,7 @@ class Component extends DCLogic {
     [order[i], order[j]] = [order[j], order[i]];
     this.forceUpdate();
   };
-  onRename = (e) => { const id = e.currentTarget.dataset.id; if (this.master[id]) { this.master[id].name = e.target.value; this.persist(); } };
+  onRename = (e) => { const id = e.currentTarget.dataset.id; if (this.master[id]) { this.master[id].name = e.target.value; this.markPersistNeeded(); } };
   askDelete = (e) => this.setState({ confirmDel: e.currentTarget.dataset.id, newSecId: null });
   cancelDelete = () => this.setState({ confirmDel: null });
   doDelete = (e) => {
@@ -954,9 +1251,15 @@ class Component extends DCLogic {
     const m = this.master[secId];
     if (!m) return { id: secId, name: secId, walkNo, badge, items: [], remaining: 0, empty: true, showDropZone: false, countLabel: 'empty' };
     let remaining = 0;
-    const names = Array.isArray(m.items) ? m.items : [];
-    const items = names.filter(n => !this.state.offList[secId + ':' + n]).map((name) => {
-      const id = secId + ':' + name;
+    const rawItems = Array.isArray(m.items) ? m.items : [];
+    const seenNames = {};
+    const items = rawItems.map((item) => {
+      const name = this.itemName(item);
+      const occurrence = (seenNames[name] || 0) + 1;
+      seenNames[name] = occurrence;
+      const id = this.itemDomId(secId, item, occurrence);
+      return { id, name };
+    }).filter(item => item.name && !this.state.offList[item.id]).map(({ id, name }) => {
       const checked = !!this.state.checked[id];
       if (!checked) remaining++;
       const dragging = this.state.shopDragId === id;
@@ -997,7 +1300,11 @@ class Component extends DCLogic {
     const catIds = this.addableSectionIds();
     const catalog = catIds.map(sid => {
       const m = this.master[sid];
-      const items = m.items.map(name => { const id = sid + ':' + name; const onList = !this.state.offList[id];
+      const seenNames = {};
+      const items = m.items.map(item => { const name = this.itemName(item);
+        const occurrence = (seenNames[name] || 0) + 1;
+        seenNames[name] = occurrence;
+        const id = this.itemDomId(sid, item, occurrence); const onList = !this.state.offList[id];
         const editing = this.state.editItem === id;
         return { id, name, onList, notOnList: !onList, editing, notEditing: !editing, editKey: 'edit:' + id }; });
       const on = items.filter(x => x.onList).length;
@@ -1009,7 +1316,8 @@ class Component extends DCLogic {
     const addSecName = this.master[currentAddSec] ? this.master[currentAddSec].name : 'Pantry';
     const im = this.state.itemMenu;
     const imSec = im ? im.slice(0, im.indexOf(':')) : null;
-    const itemMenuName = im ? im.slice(im.indexOf(':') + 1) : '';
+    const menuItem = im ? this.findItem(im) : null;
+    const itemMenuName = menuItem ? menuItem.name : '';
     const moveOptions = catIds.map(id => ({ id, name: this.master[id].name, isMeal: id === 'meal', selected: id === imSec }));
 
     const storeCards = this.stores.map((s, idx) => {
@@ -1061,6 +1369,7 @@ class Component extends DCLogic {
       addKey: this.addKey, addClick: this.addClick,
       showToast: !!this.state.toast, toastText: this.state.toast,
       // views
+      appVersion: this.appVersion,
       isList: view === 'list', isStores: view === 'stores', isEdit: view === 'edit', isSaved: view === 'saved',
       isEmptyList: sections.length === 0,
       listColor: view === 'list' ? '#c67139' : '#a19786',
