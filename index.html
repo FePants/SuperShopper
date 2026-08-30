@@ -448,7 +448,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  appVersion = 'v19';
+  appVersion = 'v20';
   stores = [
     { id: 'harvest', name: 'Harvest Market', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] },
     { id: 'corner',  name: 'Corner Grocer',  order: ['pantry', 'dairy', 'frozen', 'produce', 'bakery', 'deli'] },
@@ -694,16 +694,7 @@ class Component extends DCLogic {
   }
   mergeItems(baseItems = [], remoteItems = [], localItems = []) {
     if (this.sameData(localItems, baseItems)) return remoteItems;
-      const baseIds = new Set(baseItems.map((item, i) => this.itemDomId('merge', item, i + 1)));
-      const localIds = new Set(localItems.map((item, i) => this.itemDomId('merge', item, i + 1)));
-      const merged = localItems.map(item => this.itemName(item)).filter(Boolean);
-    remoteItems.forEach(item => {
-      const name = this.itemName(item);
-      if (!name) return;
-      const id = this.itemDomId('merge', item, merged.filter(x => x === name).length + 1);
-      if (!localIds.has(id) && !baseIds.has(id)) merged.push(name);
-    });
-    return merged;
+    return localItems.map(item => this.itemName(item)).filter(Boolean);
   }
   mergeMaster(base = {}, remote = {}, local = {}) {
     const next = {};
@@ -851,6 +842,12 @@ class Component extends DCLogic {
     const exists = typeof doc.exists === 'function' ? doc.exists() : doc.exists;
     const fromCache = !!(doc.metadata && doc.metadata.fromCache);
     const hasPendingWrites = !!(doc.metadata && doc.metadata.hasPendingWrites);
+    if (hasPendingWrites) {
+      this._suppressPersist = false;
+      this._hydrated = true;
+      if (afterApply) afterApply();
+      return;
+    }
     if (fromCache && !hasPendingWrites && !this._sawServerSnapshot) {
       this._suppressPersist = false;
       this._hydrated = true;
