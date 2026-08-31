@@ -448,7 +448,8 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  appVersion = 'v20';
+  appVersion = 'v21';
+  uiStorageKey = 'super-shopper-ui-v1';
   stores = [
     { id: 'harvest', name: 'Harvest Market', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] },
     { id: 'corner',  name: 'Corner Grocer',  order: ['pantry', 'dairy', 'frozen', 'produce', 'bakery', 'deli'] },
@@ -602,6 +603,10 @@ class Component extends DCLogic {
     this.master = this.normalizeMaster(this.master, false);
     this.state.checked = this.normalizeItemState(this.state.checked);
     this.state.offList = this.normalizeItemState(this.state.offList);
+    const localUi = this.readLocalUi();
+    this.state.storeIdx = this.normalizeStoreIdx(localUi.storeIdx !== undefined ? localUi.storeIdx : this.state.storeIdx);
+    this.state.addSec = this.normalizeAddSec(localUi.addSec || this.state.addSec, this.state.storeIdx);
+    this.saveLocalUi({ storeIdx: this.state.storeIdx, addSec: this.state.addSec });
     this._hydrated = false;
     this._suppressPersist = true;
     this._unsub = this.listDoc.onSnapshot({ includeMetadataChanges: true }, (doc) => this.applyRemoteDoc(doc), (err) => {
@@ -637,99 +642,46 @@ class Component extends DCLogic {
       master,
       checked: { ...state.checked },
       offList: { ...state.offList },
-      defaultIdx: state.defaultIdx,
-      addSec: state.addSec,
-      storeIdx: state.storeIdx
+      defaultIdx: state.defaultIdx
     };
   }
   dataKey(state = this.state) { return JSON.stringify(this.dataPayload(state)); }
   clonePayload(payload) {
     return JSON.parse(JSON.stringify(payload || {}));
   }
-  sameData(a, b) {
-    return JSON.stringify(a || null) === JSON.stringify(b || null);
-  }
-  mergeSparseMap(base = {}, remote = {}, local = {}) {
-    const next = { ...remote };
-    const keys = new Set([...Object.keys(base || {}), ...Object.keys(local || {})]);
-    keys.forEach(key => {
-      const baseOn = !!base[key];
-      const localOn = !!local[key];
-      if (localOn === baseOn) return;
-      if (localOn) next[key] = true;
-      else delete next[key];
-    });
-    return next;
-  }
-  recordSparseOverride(mapName, id, on) {
-    if (!id) return;
-    if (!this._localSparseOverrides) this._localSparseOverrides = { checked: {}, offList: {} };
-    if (!this._localSparseOverrides[mapName]) this._localSparseOverrides[mapName] = {};
-    this._localSparseOverrides[mapName][id] = !!on;
-  }
-  clearSparseOverride(mapName, id) {
-    if (this._localSparseOverrides && this._localSparseOverrides[mapName]) {
-      delete this._localSparseOverrides[mapName][id];
+  readLocalUi() {
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(this.uiStorageKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch (err) {
+      return {};
     }
   }
-  applySparseOverrides(mapName, remote = {}) {
-    const next = { ...remote };
-    const overrides = this._localSparseOverrides && this._localSparseOverrides[mapName];
-    if (!overrides) return next;
-    Object.entries(overrides).forEach(([id, on]) => {
-      if (on) next[id] = true;
-      else delete next[id];
-    });
-    return next;
+  normalizeStoreIdx(value) {
+    const idx = Number(value);
+    return Number.isInteger(idx) && idx >= 0 && idx < this.stores.length ? idx : 0;
   }
-  reconcileSparseOverrides(mapName, remote = {}) {
-    const overrides = this._localSparseOverrides && this._localSparseOverrides[mapName];
-    if (!overrides) return;
-    Object.entries(overrides).forEach(([id, on]) => {
-      if (!!remote[id] === !!on) delete overrides[id];
-    });
+  normalizeAddSec(secId, storeIdx = this.state.storeIdx) {
+    return this.isAddableSection(secId, storeIdx) ? secId : this.firstAddableSection(storeIdx);
   }
-  mergeValue(base, remote, local) {
-    return this.sameData(local, base) ? remote : local;
+  saveLocalUi(patch = {}) {
+    try {
+      if (!window.localStorage) return;
+      const prev = this.readLocalUi();
+      const rawStoreIdx = patch.storeIdx !== undefined ? patch.storeIdx : (prev.storeIdx !== undefined ? prev.storeIdx : this.state.storeIdx);
+      const storeIdx = this.normalizeStoreIdx(rawStoreIdx);
+      const rawAddSec = patch.addSec || prev.addSec || this.state.addSec;
+      const addSec = this.normalizeAddSec(rawAddSec, storeIdx);
+      window.localStorage.setItem(this.uiStorageKey, JSON.stringify({ storeIdx, addSec }));
+    } catch (err) {}
   }
-  mergeItems(baseItems = [], remoteItems = [], localItems = []) {
-    if (this.sameData(localItems, baseItems)) return remoteItems;
-    return localItems.map(item => this.itemName(item)).filter(Boolean);
+  hasUnsavedChanges() {
+    const hasDeletes = this._deletedSectionIds && this._deletedSectionIds.size > 0;
+    return !!(this._hydrated && (hasDeletes || this._persistInFlight || this._pendingPersist || this.dataKey() !== this._lastPersistKey));
   }
-  mergeMaster(base = {}, remote = {}, local = {}) {
-    const next = {};
-    const ids = new Set([...Object.keys(base || {}), ...Object.keys(remote || {}), ...Object.keys(local || {})]);
-    ids.forEach(id => {
-      const baseSec = base[id] || null;
-      const remoteSec = remote[id] || null;
-      const localSec = local[id] || null;
-      if (!localSec) {
-        if (baseSec) return;
-        if (remoteSec) next[id] = remoteSec;
-        return;
-      }
-      if (this.sameData(localSec, baseSec)) {
-        if (remoteSec) next[id] = remoteSec;
-        return;
-      }
-      next[id] = {
-        name: !remoteSec || localSec.name !== (baseSec && baseSec.name) ? localSec.name : remoteSec.name,
-        items: this.mergeItems(baseSec && baseSec.items, remoteSec && remoteSec.items, localSec.items)
-      };
-    });
-    return next;
-  }
-  mergeStores(base = [], remote = [], local = []) {
-    if (this.sameData(local, base)) return remote;
-    const baseIds = new Set(base.map(store => store && store.id).filter(Boolean));
-    const localIds = new Set(local.map(store => store && store.id).filter(Boolean));
-    const merged = local.map(store => ({ ...store, order: Array.isArray(store.order) ? [...store.order] : [] }));
-    remote.forEach(store => {
-      if (store && store.id && !localIds.has(store.id) && !baseIds.has(store.id)) {
-        merged.push({ ...store, order: Array.isArray(store.order) ? [...store.order] : [] });
-      }
-    });
-    return merged;
+  markCleanBaseline(payload = this.dataPayload()) {
+    this._lastPersistKey = JSON.stringify(payload);
+    this._lastPersistPayload = this.clonePayload(payload);
   }
   markPersistNeeded() {
     this._pendingPersist = true;
@@ -749,13 +701,16 @@ class Component extends DCLogic {
     const key = JSON.stringify(payload);
     const deletedSectionIds = this._deletedSectionIds ? [...this._deletedSectionIds] : [];
     if (!deletedSectionIds.length && key === this._lastPersistKey) return Promise.resolve();
+    const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
     deletedSectionIds.forEach(id => {
-      if (window.firebase && firebase.firestore && firebase.firestore.FieldValue) {
-        payload.master[id] = firebase.firestore.FieldValue.delete();
+      if (fieldValue) {
+        payload.master[id] = fieldValue.delete();
       }
     });
-    if (window.firebase && firebase.firestore && firebase.firestore.FieldValue) {
-      payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+    if (fieldValue) {
+      payload.addSec = fieldValue.delete();
+      payload.storeIdx = fieldValue.delete();
+      payload.updatedAt = fieldValue.serverTimestamp();
     }
     this._persistInFlight = true;
     this._pendingPersist = false;
@@ -774,8 +729,11 @@ class Component extends DCLogic {
     }).finally(() => {
       this._persistInFlight = false;
       const shouldPersistAgain = this._pendingPersist || this.dataKey() !== this._lastPersistKey;
+      const shouldRefreshAfterDeferredRemote = !failed && !shouldPersistAgain && !!this._deferredRemoteDoc;
+      this._deferredRemoteDoc = null;
       this._pendingPersist = false;
       if (shouldPersistAgain) this.schedulePersist(failed ? 8000 : 900);
+      else if (shouldRefreshAfterDeferredRemote) setTimeout(() => this.refreshData({ automatic: true }), 500);
     });
     return this._persistPromise;
   }
@@ -863,35 +821,28 @@ class Component extends DCLogic {
       else if (afterApply) afterApply();
       return;
     }
+    if (this.hasUnsavedChanges()) {
+      this._deferredRemoteDoc = doc;
+      if (Object.keys(extraState).length) this.setUiState(extraState, afterApply);
+      else if (afterApply) afterApply();
+      return;
+    }
     const d = doc.data();
     const hasRemoteStores = Array.isArray(d.stores) && d.stores.length;
-    const localPayload = this.dataPayload();
-    const basePayload = this._lastPersistPayload || null;
-    const hasLocalChanges = !!(this._hydrated && basePayload && (
-      JSON.stringify(localPayload) !== this._lastPersistKey || this._persistInFlight || this._pendingPersist
-    ));
     const remoteMaster = d.master ? this.normalizeMaster(d.master, !hasRemoteStores) : this.normalizeMaster(this.master, false);
     const remoteStores = this.normalizeStores(d.stores, remoteMaster);
-    this.master = hasLocalChanges ? this.mergeMaster(basePayload.master, remoteMaster, localPayload.master) : remoteMaster;
-    this.stores = hasLocalChanges ? this.mergeStores(basePayload.stores, remoteStores, localPayload.stores) : remoteStores;
-    const remoteStoreIdx = typeof d.storeIdx === 'number' && d.storeIdx < this.stores.length ? d.storeIdx : 0;
-    const remoteDefaultIdx = typeof d.defaultIdx === 'number' && d.defaultIdx < this.stores.length ? d.defaultIdx : 0;
-    const storeIdx = hasLocalChanges ? this.mergeValue(basePayload.storeIdx, remoteStoreIdx, localPayload.storeIdx) : remoteStoreIdx;
-    const defaultIdx = hasLocalChanges ? this.mergeValue(basePayload.defaultIdx, remoteDefaultIdx, localPayload.defaultIdx) : remoteDefaultIdx;
-    const remoteAddSec = this.isAddableSection(d.addSec, storeIdx) ? d.addSec : this.firstAddableSection(storeIdx);
-    const addSec = hasLocalChanges ? this.mergeValue(basePayload.addSec, remoteAddSec, localPayload.addSec) : remoteAddSec;
+    this.master = remoteMaster;
+    this.stores = remoteStores;
+    const localUi = this.readLocalUi();
+    const storeIdx = this.normalizeStoreIdx(localUi.storeIdx !== undefined ? localUi.storeIdx : this.state.storeIdx);
+    const defaultIdx = typeof d.defaultIdx === 'number' && d.defaultIdx < this.stores.length ? d.defaultIdx : 0;
+    const addSec = this.normalizeAddSec(localUi.addSec || this.state.addSec, storeIdx);
     const remoteChecked = this.normalizeItemState(d.checked || {});
     const remoteOffList = this.normalizeItemState(d.offList || {});
-    this.reconcileSparseOverrides('checked', remoteChecked);
-    this.reconcileSparseOverrides('offList', remoteOffList);
-    const checkedBase = hasLocalChanges ? this.mergeSparseMap(basePayload.checked, remoteChecked, localPayload.checked) : remoteChecked;
-    const offListBase = hasLocalChanges ? this.mergeSparseMap(basePayload.offList, remoteOffList, localPayload.offList) : remoteOffList;
-    const checked = this.applySparseOverrides('checked', checkedBase);
-    const offList = this.applySparseOverrides('offList', offListBase);
     this._suppressPersist = true;
     this.setState({
-      checked,
-      offList,
+      checked: remoteChecked,
+      offList: remoteOffList,
       defaultIdx,
       addSec,
       storeIdx,
@@ -899,12 +850,8 @@ class Component extends DCLogic {
     }, () => {
       this._suppressPersist = false;
       this._hydrated = true;
-      if (hasLocalChanges) this.markPersistNeeded();
-      else {
-        const cleanPayload = this.dataPayload();
-        this._lastPersistKey = JSON.stringify(cleanPayload);
-        this._lastPersistPayload = this.clonePayload(cleanPayload);
-      }
+      this.saveLocalUi({ storeIdx, addSec });
+      this.markCleanBaseline();
       if (afterApply) afterApply();
     });
   }
@@ -912,7 +859,7 @@ class Component extends DCLogic {
     const automatic = !!(opts && opts.automatic);
     if (this.state.refreshing) return Promise.resolve();
     if (automatic && !this._hydrated) return Promise.resolve();
-    const dirty = this.dataKey() !== this._lastPersistKey || this._persistInFlight || this._pendingPersist;
+    const dirty = this.hasUnsavedChanges();
     if (automatic && dirty) {
       return this.flushLocalChanges().catch(() => {});
     }
@@ -1000,8 +947,6 @@ class Component extends DCLogic {
   }
 
   toggle(id) {
-    const nextChecked = !this.state.checked[id];
-    this.recordSparseOverride('checked', id, nextChecked);
     this.setState(s => ({ checked: { ...s.checked, [id]: !s.checked[id] } }));
   }
   onRow = (e) => { if (this.state.reorder) return; const id = e.currentTarget.dataset.id; if (id && !this.shouldSuppressItemClick(id)) this.toggle(id); };
@@ -1013,8 +958,6 @@ class Component extends DCLogic {
       ids.forEach(id => {
         off[id] = true;
         delete ck[id];
-        this.recordSparseOverride('offList', id, true);
-        this.recordSparseOverride('checked', id, false);
       });
       return { offList: off, checked: ck };
     });
@@ -1066,11 +1009,7 @@ class Component extends DCLogic {
       const off = { ...s.offList }, ck = { ...s.checked };
       delete off[oldId];
       delete off[newId];
-      this.recordSparseOverride('offList', oldId, false);
-      this.recordSparseOverride('offList', newId, false);
       if (ck[oldId]) { delete ck[oldId]; ck[newId] = true; } else { delete ck[newId]; }
-      this.recordSparseOverride('checked', oldId, false);
-      this.recordSparseOverride('checked', newId, !!ck[newId]);
       return { offList: off, checked: ck, shopDragId: newId };
     });
   };
@@ -1084,7 +1023,7 @@ class Component extends DCLogic {
     const next = (this.state.storeIdx + 1) % this.stores.length;
     const nextState = { storeIdx: next, toast: 'Reordered for ' + this.stores[next].name };
     if (!this.isAddableSection(this.state.addSec, next)) nextState.addSec = this.firstAddableSection(next);
-    this.setState(nextState);
+    this.setState(nextState, () => this.saveLocalUi({ storeIdx: this.state.storeIdx, addSec: this.state.addSec }));
     clearTimeout(this._t);
     this._t = setTimeout(() => this.setUiState({ toast: '' }), 1900);
   };
@@ -1094,8 +1033,6 @@ class Component extends DCLogic {
     this.master[secId].items.unshift(nm);
     const id = this.itemDomId(secId, nm, 1);
     const legacyId = secId + ':' + nm;
-    this.recordSparseOverride('offList', id, false);
-    this.recordSparseOverride('offList', legacyId, false);
     this.setState(s => { const off = { ...s.offList }; delete off[id]; delete off[legacyId]; return { offList: off }; });
   }
   goSaved = () => this.setState({ view: 'saved' });
@@ -1108,12 +1045,9 @@ class Component extends DCLogic {
       const off = { ...s.offList }, ck = { ...s.checked };
       if (off[id]) {
         delete off[id];
-        this.recordSparseOverride('offList', id, false);
       } else {
         off[id] = true;
         delete ck[id];
-        this.recordSparseOverride('offList', id, true);
-        this.recordSparseOverride('checked', id, false);
       }
       return { offList: off, checked: ck };
     });
@@ -1128,7 +1062,7 @@ class Component extends DCLogic {
   pickSec = (e) => {
     const id = e.currentTarget.dataset.id;
     if (!this.isAddableSection(id)) return;
-    this.setState({ addSec: id, pickerOpen: false });
+    this.setState({ addSec: id, pickerOpen: false }, () => this.saveLocalUi({ addSec: this.state.addSec }));
   };
   stop = (e) => e.stopPropagation();
   dragStart = (e) => {
@@ -1175,10 +1109,6 @@ class Component extends DCLogic {
       if (target !== sec) {
         if (off[oldId]) { delete off[oldId]; off[newId] = true; } else { delete off[newId]; }
         if (ck[oldId]) { delete ck[oldId]; ck[newId] = true; } else { delete ck[newId]; }
-        this.recordSparseOverride('offList', oldId, false);
-        this.recordSparseOverride('offList', newId, !!off[newId]);
-        this.recordSparseOverride('checked', oldId, false);
-        this.recordSparseOverride('checked', newId, !!ck[newId]);
       }
       return { offList: off, checked: ck, itemMenu: null };
     });
@@ -1188,8 +1118,6 @@ class Component extends DCLogic {
     const item = this.findItem(id); if (!item) return;
     const { sec } = item;
     if (this.master[sec]) this.master[sec].items.splice(item.index, 1);
-    this.clearSparseOverride('offList', id);
-    this.clearSparseOverride('checked', id);
     this.setState(s => { const off = { ...s.offList }, ck = { ...s.checked }; delete off[id]; delete ck[id]; return { offList: off, checked: ck, itemMenu: null }; });
   };
 
