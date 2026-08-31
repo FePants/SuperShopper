@@ -448,7 +448,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  appVersion = 'v21';
+  appVersion = 'v22';
   uiStorageKey = 'super-shopper-ui-v1';
   stores = [
     { id: 'harvest', name: 'Harvest Market', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] },
@@ -626,7 +626,10 @@ class Component extends DCLogic {
   }
   componentDidUpdate() {
     if (!this._hydrated || this._suppressPersist) return;
-    if (this.dataKey() !== this._lastPersistKey) this.schedulePersist();
+    if (this.dataKey() !== this._lastPersistKey) {
+      this._localDirty = true;
+      this.schedulePersist();
+    }
   }
   dataPayload(state = this.state) {
     const master = {};
@@ -677,14 +680,20 @@ class Component extends DCLogic {
   }
   hasUnsavedChanges() {
     const hasDeletes = this._deletedSectionIds && this._deletedSectionIds.size > 0;
-    return !!(this._hydrated && (hasDeletes || this._persistInFlight || this._pendingPersist || this.dataKey() !== this._lastPersistKey));
+    return !!(this._hydrated && (this._localDirty || hasDeletes || this._persistInFlight || this._pendingPersist || this.dataKey() !== this._lastPersistKey));
   }
   markCleanBaseline(payload = this.dataPayload()) {
     this._lastPersistKey = JSON.stringify(payload);
     this._lastPersistPayload = this.clonePayload(payload);
+    this._localDirty = false;
+  }
+  markLocalChange() {
+    this._localDirty = true;
+    if (this._persistInFlight) this._pendingPersist = true;
+    if (this._hydrated && !this._suppressPersist) this.schedulePersist();
   }
   markPersistNeeded() {
-    this._pendingPersist = true;
+    this.markLocalChange();
     if (this._hydrated && !this._suppressPersist) this.schedulePersist(0);
   }
   schedulePersist(delay = 350) {
@@ -721,6 +730,7 @@ class Component extends DCLogic {
       if (deletedSectionIds.length && this._deletedSectionIds) {
         deletedSectionIds.forEach(id => this._deletedSectionIds.delete(id));
       }
+      if (this.dataKey() === key && !(this._deletedSectionIds && this._deletedSectionIds.size)) this._localDirty = false;
     }).catch((err) => {
       failed = true;
       console.error('Firestore save failed', err);
@@ -728,7 +738,7 @@ class Component extends DCLogic {
       throw err;
     }).finally(() => {
       this._persistInFlight = false;
-      const shouldPersistAgain = this._pendingPersist || this.dataKey() !== this._lastPersistKey;
+      const shouldPersistAgain = this._pendingPersist || this._localDirty || this.dataKey() !== this._lastPersistKey;
       const shouldRefreshAfterDeferredRemote = !failed && !shouldPersistAgain && !!this._deferredRemoteDoc;
       this._deferredRemoteDoc = null;
       this._pendingPersist = false;
@@ -942,11 +952,13 @@ class Component extends DCLogic {
     const nextName = (rawName || '').trim();
     const arr = this.master[item.sec].items || [];
     if (!nextName || nextName === item.name || item.index < 0) { this.setState({ editItem: null }); return; }
+    this.markLocalChange();
     arr[item.index] = nextName;
     this.setState({ editItem: null });
   }
 
   toggle(id) {
+    this.markLocalChange();
     this.setState(s => ({ checked: { ...s.checked, [id]: !s.checked[id] } }));
   }
   onRow = (e) => { if (this.state.reorder) return; const id = e.currentTarget.dataset.id; if (id && !this.shouldSuppressItemClick(id)) this.toggle(id); };
@@ -954,6 +966,7 @@ class Component extends DCLogic {
     this.setState(s => {
       const ids = this.checkedVisibleItemIds(s.storeIdx, s);
       if (!ids.length) return null;
+      this.markLocalChange();
       const off = { ...s.offList }, ck = { ...s.checked };
       ids.forEach(id => {
         off[id] = true;
@@ -988,6 +1001,7 @@ class Component extends DCLogic {
     if (!fromArr || !toArr) return;
     const from = fromItem.index;
     if (from < 0) return;
+    this.markLocalChange();
     if (targetSec === fromItem.sec) {
       if (!targetId) return;
       const toItem = this.findItem(targetId);
@@ -1030,6 +1044,7 @@ class Component extends DCLogic {
   addItem(secId, name) {
     if (!name || !name.trim() || !this.master[secId] || !this.isAddableSection(secId)) return;
     const nm = name.trim();
+    this.markLocalChange();
     this.master[secId].items.unshift(nm);
     const id = this.itemDomId(secId, nm, 1);
     const legacyId = secId + ':' + nm;
@@ -1038,9 +1053,14 @@ class Component extends DCLogic {
   goSaved = () => this.setState({ view: 'saved' });
   toggleList = (e) => {
     const id = e.currentTarget.dataset.id;
+    const now = Date.now();
+    if (this._lastToggleListId === id && now - this._lastToggleListAt < 300) return;
+    this._lastToggleListId = id;
+    this._lastToggleListAt = now;
     if (this.shouldSuppressItemClick(id)) return;
     const item = this.findItem(id);
     if (!item || !this.isAddableSection(item.sec)) return;
+    this.markLocalChange();
     this.setState(s => {
       const off = { ...s.offList }, ck = { ...s.checked };
       if (off[id]) {
@@ -1082,6 +1102,7 @@ class Component extends DCLogic {
     const order = this.stores[this.state.editIdx].order;
     const from = order.indexOf(id), to = order.indexOf(targetId);
     if (from < 0 || to < 0) return;
+    this.markLocalChange();
     order.splice(to, 0, order.splice(from, 1)[0]);
     this.forceUpdate();
   };
@@ -1097,6 +1118,7 @@ class Component extends DCLogic {
     const id = this.state.itemMenu; if (!id) return;
     const item = this.findItem(id); if (!item || !this.isAddableSection(target)) return;
     const { sec } = item;
+    this.markLocalChange();
     if (target !== sec && this.master[target]) {
       const moved = this.master[sec].items.splice(item.index, 1)[0];
       this.master[target].items.unshift(moved);
@@ -1117,6 +1139,7 @@ class Component extends DCLogic {
     const id = this.state.itemMenu; if (!id) return;
     const item = this.findItem(id); if (!item) return;
     const { sec } = item;
+    this.markLocalChange();
     if (this.master[sec]) this.master[sec].items.splice(item.index, 1);
     this.setState(s => { const off = { ...s.offList }, ck = { ...s.checked }; delete off[id]; delete ck[id]; return { offList: off, checked: ck, itemMenu: null }; });
   };
@@ -1125,10 +1148,11 @@ class Component extends DCLogic {
   goStores = () => this.setState({ view: 'stores' });
   openStore = (e) => this.setState({ view: 'edit', editIdx: +e.currentTarget.dataset.idx });
   back = () => this.setState({ view: 'stores' });
-  setDefault = () => this.setState({ defaultIdx: this.state.editIdx });
+  setDefault = () => { this.markLocalChange(); this.setState({ defaultIdx: this.state.editIdx }); };
   renameStore = (e) => { const v = e.target.value.trim(); if (v) { this.stores[this.state.editIdx].name = v; this.markPersistNeeded(); } };
   addStore = () => {
     const id = 'store' + Date.now();
+    this.markLocalChange();
     this.stores.push({ id, name: 'New store', order: ['produce', 'bakery', 'deli', 'dairy', 'pantry', 'frozen'] });
     this.setState({ view: 'edit', editIdx: this.stores.length - 1 });
   };
@@ -1138,6 +1162,7 @@ class Component extends DCLogic {
     const i = order.indexOf(id);
     const j = dir === 'up' ? i - 1 : i + 1;
     if (i < 0 || j < 0 || j >= order.length) return;
+    this.markLocalChange();
     [order[i], order[j]] = [order[j], order[i]];
     this.forceUpdate();
   };
@@ -1146,6 +1171,7 @@ class Component extends DCLogic {
   cancelDelete = () => this.setState({ confirmDel: null });
   doDelete = (e) => {
     const id = e.currentTarget.dataset.id;
+    this.markLocalChange();
     delete this.master[id];
     if (!this._deletedSectionIds) this._deletedSectionIds = new Set();
     this._deletedSectionIds.add(id);
@@ -1155,6 +1181,7 @@ class Component extends DCLogic {
   };
   addSection = () => {
     const id = 'sec' + Date.now();
+    this.markLocalChange();
     this.master[id] = { name: '', items: [] };
     this.stores[this.state.editIdx].order.push(id);
     const addSec = this.state.editIdx === this.state.storeIdx ? id : this.state.addSec;
@@ -1165,6 +1192,7 @@ class Component extends DCLogic {
   addExistingSection = (e) => {
     const id = e.currentTarget.dataset.id;
     const order = this.stores[this.state.editIdx].order;
+    this.markLocalChange();
     if (!order.includes(id)) order.push(id);
     this.setState({ addExistingOpen: false, newSecId: null });
   };
